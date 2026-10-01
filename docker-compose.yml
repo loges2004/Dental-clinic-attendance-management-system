@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: v3_dental_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-v3_dental_attendance}
+      POSTGRES_USER: ${POSTGRES_USER:-v3_clinic_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-v3_clinic_secure_pass_2026}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-v3_clinic_user} -d ${POSTGRES_DB:-v3_dental_attendance}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

@@ -35,11 +35,12 @@ public class Branch {
 
     @Builder.Default
     @Column(name = "allowed_radius_meters", nullable = false, precision = 6, scale = 2)
-    private BigDecimal allowedRadiusMeters = new BigDecimal("100.00");
+    private BigDecimal allowedRadiusMeters = new BigDecimal("150.00");
 
     @Builder.Default
     @Column(name = "max_gps_accuracy_meters", nullable = false, precision = 6, scale = 2)
-    private BigDecimal maxGpsAccuracyMeters = new BigDecimal("50.00");
+    private BigDecimal maxGpsAccuracyMeters = new BigDecimal("150.00");
+
 
     @Builder.Default
     @Column(name = "is_active", nullable = false)

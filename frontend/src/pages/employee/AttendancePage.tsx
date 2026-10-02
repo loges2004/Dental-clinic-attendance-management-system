@@ -6,16 +6,15 @@ import { useAuth } from '../../context/AuthContext';
 import { showAlert } from '../../utils/alerts';
 import {
   MapPin, WifiOff, RefreshCw, Navigation,
-  LogIn, LogOut, Clock, ClipboardList, History
+  LogIn, LogOut, Clock, ClipboardList, History, AlertTriangle
 } from 'lucide-react';
-
 import RegularizationRequestModal from '../../components/attendance/RegularizationRequestModal';
 
 interface GPSState {
   latitude: number | null;
   longitude: number | null;
   accuracy: number | null;
-  status: 'idle' | 'acquiring' | 'ready' | 'error' | 'denied';
+  status: 'idle' | 'acquiring' | 'refining' | 'ready' | 'error' | 'denied';
   error?: string;
 }
 
@@ -31,6 +30,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
   const [showRegModal, setShowRegModal] = useState(false);
   const [, setTick] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const watchIdRef = useRef<number | null>(null);
 
   // Live clock
   useEffect(() => {
@@ -49,25 +49,34 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
     queryFn: () => leaveService.getMyBalance(),
   });
 
-  const acquireGPS = useCallback(() => {
+  // Continuous High-Accuracy GPS Watcher
+  const startGpsWatcher = useCallback(() => {
     if (!navigator.geolocation) {
       setGps({ latitude: null, longitude: null, accuracy: null, status: 'error', error: 'Geolocation is not supported by your browser' });
       return;
     }
+
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+    }
+
     setGps(g => ({ ...g, status: 'acquiring', error: undefined }));
-    navigator.geolocation.getCurrentPosition(
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
       pos => {
+        const acc = Math.round(pos.coords.accuracy);
         setGps({
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
-          accuracy: Math.round(pos.coords.accuracy),
-          status: 'ready',
+          accuracy: acc,
+          status: acc <= 150 ? 'ready' : 'refining',
+          error: undefined,
         });
       },
       err => {
         const errorMessages: Record<number, string> = {
           1: 'Location permission was denied. Please allow location access in your browser settings.',
-          2: 'Location information is unavailable. Check GPS/Wi-Fi.',
+          2: 'Location information is unavailable. Please turn on phone GPS / High Accuracy.',
           3: 'Location request timed out. Please try again.',
         };
         setGps({
@@ -75,16 +84,42 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
           longitude: null,
           accuracy: null,
           status: err.code === 1 ? 'denied' : 'error',
-          error: errorMessages[err.code] || 'Could not acquire location',
+          error: errorMessages[err.code] || 'Could not acquire GPS location',
         });
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );
   }, []);
 
   useEffect(() => {
-    acquireGPS();
-  }, [acquireGPS]);
+    startGpsWatcher();
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, [startGpsWatcher]);
+
+  // Request fresh high precision lock
+  const acquireHighAccuracyGPS = async (): Promise<{ lat: number; lng: number; acc: number } | null> => {
+    return new Promise(resolve => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          const acc = Math.round(pos.coords.accuracy);
+          setGps({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy: acc,
+            status: acc <= 150 ? 'ready' : 'refining',
+          });
+          resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc });
+        },
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+      );
+    });
+  };
 
   const att = todayAttendance;
   const sessions = att?.sessions || [];
@@ -98,18 +133,41 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
   const activeSession = isCurrentlyIn ? sessions[sessions.length - 1] : null;
 
   const handleCheckIn = async () => {
-    if (!gps.latitude || !gps.longitude) {
-      acquireGPS();
-      showAlert.warning('Acquiring Location', 'Waiting for GPS signal. Please try again in a few moments.');
-      return;
-    }
     setActionLoading(true);
     setActionMsg(null);
+
+    // Refresh position to get latest high accuracy reading
+    let currentLat = gps.latitude;
+    let currentLng = gps.longitude;
+    let currentAcc = gps.accuracy;
+
+    const freshPos = await acquireHighAccuracyGPS();
+    if (freshPos) {
+      currentLat = freshPos.lat;
+      currentLng = freshPos.lng;
+      currentAcc = freshPos.acc;
+    }
+
+    if (!currentLat || !currentLng) {
+      setActionLoading(false);
+      showAlert.error('GPS Not Available', 'Please enable Location / GPS on your device and grant permission.');
+      return;
+    }
+
+    if (currentAcc && currentAcc > 150) {
+      setActionLoading(false);
+      showAlert.warning(
+        'Refining GPS Signal 📍',
+        `Your device is currently in coarse mode (±${currentAcc}m). Please enable "Google Location Accuracy / High Precision" in phone settings or step near a door/window for 5 seconds.`
+      );
+      return;
+    }
+
     try {
       await attendanceService.checkIn(
-        gps.latitude,
-        gps.longitude,
-        gps.accuracy || 10
+        currentLat,
+        currentLng,
+        currentAcc || 10
       );
       const isReEntry = hasEverCheckedInToday;
       showAlert.success(
@@ -133,11 +191,6 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
   };
 
   const handleCheckOut = async () => {
-    if (!gps.latitude || !gps.longitude) {
-      acquireGPS();
-      showAlert.warning('Acquiring Location', 'Waiting for GPS signal. Please try again in a few moments.');
-      return;
-    }
     const confirmed = await showAlert.confirm(
       'Confirm Check-Out',
       'Are you checking out for Lunch / Break or Shift End?',
@@ -147,11 +200,29 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
 
     setActionLoading(true);
     setActionMsg(null);
+
+    let currentLat = gps.latitude;
+    let currentLng = gps.longitude;
+    let currentAcc = gps.accuracy;
+
+    const freshPos = await acquireHighAccuracyGPS();
+    if (freshPos) {
+      currentLat = freshPos.lat;
+      currentLng = freshPos.lng;
+      currentAcc = freshPos.acc;
+    }
+
+    if (!currentLat || !currentLng) {
+      setActionLoading(false);
+      showAlert.error('GPS Not Available', 'Please enable Location / GPS on your device.');
+      return;
+    }
+
     try {
       await attendanceService.checkOut(
-        gps.latitude,
-        gps.longitude,
-        gps.accuracy || 10
+        currentLat,
+        currentLng,
+        currentAcc || 10
       );
       showAlert.success('Check-out Recorded! 👋', 'Session time saved. You can check in again anytime when you return.');
       setActionMsg({ type: 'success', text: 'Checked out successfully!' });
@@ -228,7 +299,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
         </div>
       </div>
 
-      {/* OUT OF LOCATION ERROR CARD */}
+      {/* OUT OF LOCATION / COARSE GPS CARD */}
       {actionMsg?.type === 'location' && (
         <div className="glass-card" style={{
           background: 'rgba(245, 158, 11, 0.12)',
@@ -247,61 +318,78 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#fbbf24', marginBottom: '0.25rem' }}>
-                Outside Clinic Location
+                Outside Clinic Location / Weak GPS
               </div>
               <div style={{ fontSize: '0.85rem', color: '#fef3c7', lineHeight: 1.45 }}>
                 {actionMsg.text}
               </div>
-              <div style={{ marginTop: '0.6rem', fontSize: '0.78rem', color: 'rgba(254, 243, 199, 0.75)' }}>
-                Please ensure you are inside <strong>{user?.branchName}</strong> premises and try again.
+              <div style={{ marginTop: '0.6rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  style={{ background: 'var(--amber)', color: '#000', fontWeight: 700 }}
+                  onClick={startGpsWatcher}
+                >
+                  <RefreshCw size={13} style={{ marginRight: 4 }} /> Refresh GPS
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => setShowRegModal(true)}
+                  style={{ color: '#fbbf24', borderColor: 'rgba(251, 191, 36, 0.4)' }}
+                >
+                  Request Regularization →
+                </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* OTHER ACTION MESSAGE */}
-      {actionMsg && actionMsg.type !== 'location' && (
-        <div style={{
-          padding: '0.75rem 1rem',
-          borderRadius: 'var(--r-sm)',
-          fontSize: '0.875rem',
-          fontWeight: 600,
-          background: actionMsg.type === 'success' ? 'rgba(16,185,129,0.15)' : 'rgba(244,63,94,0.15)',
-          color: actionMsg.type === 'success' ? 'var(--emerald)' : 'var(--rose)',
-          border: `1px solid ${actionMsg.type === 'success' ? 'rgba(16,185,129,0.30)' : 'rgba(244,63,94,0.30)'}`,
-        }}>
-          {actionMsg.text}
         </div>
       )}
 
       {/* GPS Status Card */}
-      <div className="glass-card p-4" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+      <div
+        className="glass-card p-4"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderLeft: gps.status === 'ready' ? '4px solid var(--emerald)' : gps.status === 'refining' ? '4px solid var(--amber)' : '4px solid var(--rose)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <div style={{
-            width: 32, height: 32, borderRadius: '50%',
-            background: gps.status === 'ready' ? 'rgba(16,185,129,0.15)' : gps.status === 'acquiring' ? 'rgba(6,182,212,0.15)' : 'rgba(244,63,94,0.15)',
+            width: 36, height: 36, borderRadius: '50%',
+            background: gps.status === 'ready' ? 'rgba(16,185,129,0.15)' : gps.status === 'refining' ? 'rgba(245,158,11,0.15)' : 'rgba(244,63,94,0.15)',
             display: 'flex', alignItems: 'center', justifyContent: 'center'
           }}>
-            {gps.status === 'ready' ? <Navigation size={16} color="var(--emerald)" /> :
-             gps.status === 'acquiring' ? <RefreshCw size={16} color="var(--cyan)" className="spinner" /> :
-             <WifiOff size={16} color="var(--rose)" />}
+            {gps.status === 'ready' ? <Navigation size={18} color="var(--emerald)" /> :
+             gps.status === 'refining' ? <AlertTriangle size={18} color="var(--amber)" /> :
+             gps.status === 'acquiring' ? <RefreshCw size={18} color="var(--cyan)" className="spinner" /> :
+             <WifiOff size={18} color="var(--rose)" />}
           </div>
           <div>
-            <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>
-              {gps.status === 'ready' ? 'GPS Signal Ready' :
-               gps.status === 'acquiring' ? 'Locating device...' :
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-1)' }}>
+              {gps.status === 'ready' ? 'GPS Signal Ready (High Accuracy)' :
+               gps.status === 'refining' ? 'Refining GPS Lock (Satellite fix pending)' :
+               gps.status === 'acquiring' ? 'Acquiring GPS location...' :
                gps.status === 'denied' ? 'Location Permission Denied' : 'Location Error'}
             </div>
-            {gps.accuracy && (
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>
-                Accuracy: ±{gps.accuracy}m
-              </div>
-            )}
+            <div style={{ fontSize: '0.75rem', color: gps.status === 'ready' ? 'var(--emerald)' : 'var(--text-3)', marginTop: 2 }}>
+              {gps.accuracy ? (
+                <span>Accuracy: ±{gps.accuracy}m {gps.accuracy > 150 ? '(Coarse network mode - refining...)' : '(Precise)'}</span>
+              ) : (
+                'Waiting for device coordinates...'
+              )}
+            </div>
           </div>
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={acquireGPS} disabled={gps.status === 'acquiring'}>
-          <RefreshCw size={13} />
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={startGpsWatcher}
+          disabled={gps.status === 'acquiring'}
+          title="Refresh GPS Signal"
+        >
+          <RefreshCw size={14} className={gps.status === 'acquiring' ? 'spinner' : ''} />
         </button>
       </div>
 
@@ -351,7 +439,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
       {/* DYNAMIC ACTION CARD: MULTI-SESSION CHECK IN / CHECK OUT */}
       <div className="glass-card p-6" style={{ textAlign: 'center' }}>
         {isCurrentlyIn ? (
-          /* STATE A: CURRENTLY CHECKED IN -> ACTION IS CHECK OUT (Lunch / Shift End) */
+          /* STATE A: CURRENTLY CHECKED IN -> ACTION IS CHECK OUT */
           <div>
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
@@ -367,7 +455,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
               <button
                 className="checkin-btn checkin-btn-out"
                 onClick={handleCheckOut}
-                disabled={actionLoading || gps.status !== 'ready'}
+                disabled={actionLoading || gps.status === 'denied'}
                 id="checkout-action-btn"
                 style={{
                   width: 175, height: 175, borderRadius: '50%',
@@ -375,7 +463,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
                   border: '4px solid rgba(255,255,255,0.2)',
                   color: '#ffffff',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  cursor: (actionLoading || gps.status !== 'ready') ? 'not-allowed' : 'pointer',
+                  cursor: (actionLoading || gps.status === 'denied') ? 'not-allowed' : 'pointer',
                   boxShadow: '0 8px 32px rgba(225,29,72,0.45)',
                   transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
                   margin: '0 auto',
@@ -417,7 +505,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
               <button
                 className="checkin-btn checkin-btn-in"
                 onClick={handleCheckIn}
-                disabled={actionLoading || gps.status !== 'ready'}
+                disabled={actionLoading || gps.status === 'denied'}
                 id="checkin-action-btn"
                 style={{
                   width: 175, height: 175, borderRadius: '50%',
@@ -427,7 +515,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
                   border: '4px solid rgba(255,255,255,0.2)',
                   color: '#ffffff',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  cursor: (actionLoading || gps.status !== 'ready') ? 'not-allowed' : 'pointer',
+                  cursor: (actionLoading || gps.status === 'denied') ? 'not-allowed' : 'pointer',
                   boxShadow: '0 8px 32px rgba(13,148,136,0.45)',
                   transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
                   margin: '0 auto',
@@ -449,7 +537,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
               </button>
             </div>
             <p style={{ color: 'var(--text-3)', fontSize: '0.82rem' }}>
-              {gps.status === 'ready' ? 'Tap button when inside clinic' : 'Enable GPS to enable Check-In'}
+              {gps.status === 'ready' ? 'Tap button when inside clinic' : 'Enable device Location / GPS to Check-In'}
             </p>
           </div>
         )}
@@ -577,10 +665,10 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
           <div>
             <h3 style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Clock size={16} /> Missed Check-In or Left Clinic?
+              <Clock size={16} /> Missed Check-In or Weak GPS Signal?
             </h3>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-2)', marginTop: 2 }}>
-              If you worked during shift but forgot to punch GPS or left without checking out, send a request to Admin.
+              If indoor GPS is weak or you forgot to punch in, submit a quick regularization request to Admin.
             </p>
           </div>
           <button

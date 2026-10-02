@@ -7,8 +7,9 @@ import { showAlert } from '../../utils/alerts';
 import {
   CheckCircle2, MapPin,
   WifiOff, RefreshCw, Navigation,
-  LogIn, LogOut
+  LogIn, LogOut, Clock, ClipboardList
 } from 'lucide-react';
+import RegularizationRequestModal from '../../components/attendance/RegularizationRequestModal';
 
 interface GPSState {
   latitude: number | null;
@@ -27,6 +28,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
   const [gps, setGps] = useState<GPSState>({ latitude: null, longitude: null, accuracy: null, status: 'idle' });
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error' | 'location'; text: string } | null>(null);
+  const [showRegModal, setShowRegModal] = useState(false);
   const [, setTick] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -452,6 +454,41 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
         </div>
       )}
 
+      {/* Forgot Check-In / Missed Punch Regularization Card */}
+      <div
+        className="glass-card p-5"
+        style={{
+          background: 'linear-gradient(135deg, rgba(13, 148, 136, 0.08) 0%, rgba(20, 184, 166, 0.03) 100%)',
+          border: '1px dashed rgba(13, 148, 136, 0.35)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div>
+            <h3 style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Clock size={16} /> Missed Check-In or Left Clinic?
+            </h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-2)', marginTop: 2 }}>
+              If you worked during shift but forgot to punch GPS or left without checking out, send a request to Admin.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => setShowRegModal(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <ClipboardList size={15} /> Request Regularization
+          </button>
+        </div>
+      </div>
+
+      {/* Regularization Request Modal */}
+      <RegularizationRequestModal
+        isOpen={showRegModal}
+        onClose={() => setShowRegModal(false)}
+      />
+
     </div>
   );
 }
+

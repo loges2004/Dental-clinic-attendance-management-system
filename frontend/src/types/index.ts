@@ -72,10 +72,10 @@ export interface Attendance {
   shift: Shift | null;
   attendanceDate: string;
   checkInAt: string;
-  checkInLatitude: number;
-  checkInLongitude: number;
-  checkInAccuracy: number;
-  checkInDistance: number;
+  checkInLatitude: number | null;
+  checkInLongitude: number | null;
+  checkInAccuracy: number | null;
+  checkInDistance: number | null;
   checkOutAt: string | null;
   checkOutLatitude: number | null;
   checkOutLongitude: number | null;
@@ -85,6 +85,36 @@ export interface Attendance {
   isLate: boolean;
   isEarlyCheckout: boolean;
   notes: string | null;
+}
+
+export interface AttendanceRegularizationRequest {
+  id: number;
+  employee: Employee;
+  attendanceDate: string;
+  requestedCheckInTime: string;
+  requestedCheckOutTime: string | null;
+  reason: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  rejectionReason: string | null;
+  actionBy: { id: number; username: string } | null;
+  actionAt: string | null;
+  createdAt: string;
+}
+
+export interface RegularizationApplyDto {
+  attendanceDate: string;
+  requestedCheckInTime: string;
+  requestedCheckOutTime?: string;
+  reason: string;
+}
+
+export interface ManualAttendanceEntryDto {
+  employeeId: number;
+  attendanceDate: string;
+  checkInTime: string;
+  checkOutTime?: string;
+  status: 'PRESENT' | 'LATE' | 'HALF_DAY';
+  notes?: string;
 }
 
 export interface LeaveType {
@@ -132,3 +162,4 @@ export interface MonthlyArchiveSummary {
   onLeaveCount: number;
   totalDaysInMonth: number;
 }
+

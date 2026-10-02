@@ -9,6 +9,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/employees")
@@ -48,5 +49,13 @@ public class EmployeeController {
     public ResponseEntity<Employee> toggleStatus(@PathVariable Long id, @RequestParam boolean active, Authentication authentication) {
         User admin = userRepository.findByUsername(authentication.getName()).orElse(null);
         return ResponseEntity.ok(employeeService.toggleEmployeeStatus(id, active, admin));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, String>> deleteEmployee(@PathVariable Long id, Authentication authentication) {
+        User admin = userRepository.findByUsername(authentication.getName()).orElse(null);
+        employeeService.deleteEmployee(id, admin);
+        return ResponseEntity.ok(Map.of("message", "Employee deleted successfully"));
     }
 }

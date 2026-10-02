@@ -47,7 +47,7 @@ public class Employee {
     @JoinColumn(name = "branch_id", nullable = false)
     private Branch branch;
 
-    @Column(name = "joining_date", nullable = false)
+    @Column(name = "joining_date")
     private LocalDate joiningDate;
 
     @Builder.Default

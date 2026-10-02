@@ -48,4 +48,8 @@ export const employeeService = {
     const res = await api.patch<Employee>(`/employees/${id}/status`, null, { params: { active } });
     return res.data;
   },
+
+  async deleteEmployee(id: number): Promise<void> {
+    await api.delete(`/employees/${id}`);
+  },
 };

@@ -105,4 +105,13 @@ public class EmployeeService {
         auditService.logAction(adminUser, active ? "EMPLOYEE_REACTIVATED" : "EMPLOYEE_DISABLED", "EMPLOYEE", id, "Toggled status to " + active);
         return saved;
     }
+
+    @Transactional
+    public void deleteEmployee(Long id, User adminUser) {
+        Employee emp = getEmployeeById(id);
+        String name = emp.getFirstName() + " " + emp.getLastName();
+        String code = emp.getEmployeeCode();
+        auditService.logAction(adminUser, "EMPLOYEE_DELETED", "EMPLOYEE", id, "Deleted employee: " + name + " (" + code + ")");
+        employeeRepository.delete(emp);
+    }
 }

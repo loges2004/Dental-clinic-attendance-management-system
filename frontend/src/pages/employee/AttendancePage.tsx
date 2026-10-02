@@ -367,13 +367,13 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
           </div>
           <div>
             <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-1)' }}>
-              {gps.status === 'ready' ? 'Location Detected (Clinic Premises)' :
-               gps.status === 'acquiring' ? 'Detecting clinic location...' :
+              {gps.status === 'ready' ? (gps.accuracy && gps.accuracy > 250 ? 'Location Signal (Coarse Network/Wi-Fi)' : 'Location Signal (GPS Active)') :
+               gps.status === 'acquiring' ? 'Acquiring GPS Signal...' :
                gps.status === 'denied' ? 'Location Permission Denied' : 'Location Error'}
             </div>
-            <div style={{ fontSize: '0.75rem', color: gps.status === 'ready' ? 'var(--emerald)' : 'var(--text-3)', marginTop: 2 }}>
+            <div style={{ fontSize: '0.75rem', color: gps.status === 'ready' ? (gps.accuracy && gps.accuracy > 250 ? 'var(--amber)' : 'var(--emerald)') : 'var(--text-3)', marginTop: 2 }}>
               {gps.accuracy ? (
-                <span>GPS Accuracy: ±{gps.accuracy}m · Signal Active</span>
+                <span>GPS Accuracy: ±{gps.accuracy}m {gps.accuracy > 250 ? '(Turn on phone GPS for exact precision)' : '· High Precision'}</span>
               ) : (
                 'Waiting for device coordinates...'
               )}
@@ -456,7 +456,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
                 disabled={actionLoading || gps.status === 'denied'}
                 id="checkout-action-btn"
                 style={{
-                  width: 175, height: 175, borderRadius: '50%',
+                  borderRadius: '50%',
                   background: 'linear-gradient(135deg, #e11d48 0%, #f43f5e 100%)',
                   border: '4px solid rgba(255,255,255,0.2)',
                   color: '#ffffff',
@@ -521,7 +521,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
                 disabled={actionLoading || gps.status === 'denied'}
                 id="checkin-action-btn"
                 style={{
-                  width: 175, height: 175, borderRadius: '50%',
+                  borderRadius: '50%',
                   background: hasEverCheckedInToday
                     ? 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)'
                     : 'linear-gradient(135deg, #0d9488 0%, #06b6d4 100%)',

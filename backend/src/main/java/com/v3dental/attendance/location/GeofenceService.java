@@ -45,9 +45,14 @@ public class GeofenceService {
 
     public boolean isWithinGeofenceAdaptive(double distanceMeters, BigDecimal allowedRadiusMeters, BigDecimal accuracy) {
         if (allowedRadiusMeters == null) return true;
-        double baseRadius = Math.max(allowedRadiusMeters.doubleValue(), 250.0);
-        double accBonus = (accuracy != null && accuracy.doubleValue() > 100.0) ? Math.min(accuracy.doubleValue(), 2500.0) : 0.0;
-        return distanceMeters <= (baseRadius + accBonus);
+        // Strict base radius for clinic premises (default 150m, max 200m buffer)
+        double baseRadius = Math.max(allowedRadiusMeters.doubleValue(), 150.0);
+        // Strict tolerance: maximum 50m bonus for indoor wifi, strictly preventing 1km - 2km punches
+        double accBonus = (accuracy != null && accuracy.doubleValue() > 50.0) 
+            ? Math.min(accuracy.doubleValue() * 0.1, 50.0) 
+            : 0.0;
+        double maxAllowedDistance = baseRadius + accBonus; // strictly capped under ~200m
+        return distanceMeters <= maxAllowedDistance;
     }
 
     public boolean isAbnormalCoordinates(BigDecimal latitude, BigDecimal longitude) {

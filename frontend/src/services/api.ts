@@ -20,14 +20,20 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const original = error.config;
-    if ((error.response?.status === 401 || error.response?.status === 403) && !original._retry) {
+    // Only attempt refresh on 401 Unauthorized (expired token), not 403 Forbidden
+    if (error.response?.status === 401 && original && !original._retry && original.url !== '/auth/login' && original.url !== '/auth/refresh') {
       original._retry = true;
       const refreshToken = localStorage.getItem('v3_refresh_token');
       if (refreshToken) {
         try {
           const res = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
           const newToken = res.data.token;
+          const newRefreshToken = res.data.refreshToken;
           localStorage.setItem('v3_access_token', newToken);
+          if (newRefreshToken) {
+            localStorage.setItem('v3_refresh_token', newRefreshToken);
+          }
+          original.headers = original.headers || {};
           original.headers.Authorization = `Bearer ${newToken}`;
           return api(original);
         } catch {
@@ -35,6 +41,10 @@ api.interceptors.response.use(
           localStorage.removeItem('v3_refresh_token');
           window.location.href = '/login';
         }
+      } else {
+        localStorage.removeItem('v3_access_token');
+        localStorage.removeItem('v3_refresh_token');
+        window.location.href = '/login';
       }
     }
     return Promise.reject(error);

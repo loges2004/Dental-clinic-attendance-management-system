@@ -60,6 +60,31 @@ public class AuthService {
         return buildUserDto(user);
     }
 
+    public AuthResponse refreshToken(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new IllegalArgumentException("Refresh token is required");
+        }
+
+        String username = jwtUtils.getUsernameFromToken(refreshToken);
+        UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+
+        if (!jwtUtils.validateToken(refreshToken, userDetails)) {
+            throw new IllegalArgumentException("Invalid or expired refresh token");
+        }
+
+        User user = userRepository.findByUsername(username)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+
+        String newAccessToken = jwtUtils.generateAccessToken(userDetails);
+        String newRefreshToken = jwtUtils.generateRefreshToken(userDetails);
+
+        return AuthResponse.builder()
+            .token(newAccessToken)
+            .refreshToken(newRefreshToken)
+            .user(buildUserDto(user))
+            .build();
+    }
+
     @Transactional
     public void changePassword(String username, ChangePasswordRequest request) {
         User user = userRepository.findByUsername(username)

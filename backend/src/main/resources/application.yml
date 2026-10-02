@@ -28,8 +28,8 @@ spring:
 app:
   jwt:
     secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
-    access-expiration-ms: ${JWT_ACCESS_EXPIRATION_MS:900000} # 15 mins
-    refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:604800000} # 7 days
+    access-expiration-ms: ${JWT_ACCESS_EXPIRATION_MS:604800000} # 7 days
+    refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:2592000000} # 30 days
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
   timezone: ${APP_TIMEZONE:Asia/Kolkata}

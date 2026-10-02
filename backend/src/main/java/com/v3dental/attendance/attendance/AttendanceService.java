@@ -2,6 +2,7 @@ package com.v3dental.attendance.attendance;
 
 import com.v3dental.attendance.audit.AuditService;
 import com.v3dental.attendance.branch.Branch;
+import com.v3dental.attendance.branch.BranchRepository;
 import com.v3dental.attendance.employee.Employee;
 import com.v3dental.attendance.employee.EmployeeRepository;
 import com.v3dental.attendance.leave.LeaveRequest;
@@ -14,6 +15,7 @@ import com.v3dental.attendance.user.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -35,11 +37,81 @@ public class AttendanceService {
     private final EmployeeRepository employeeRepository;
     private final ShiftRepository shiftRepository;
     private final LeaveRequestRepository leaveRequestRepository;
+    private final BranchRepository branchRepository;
     private final GeofenceService geofenceService;
     private final UserRepository userRepository;
     private final AuditService auditService;
 
     private static final ZoneId CLINIC_ZONE = ZoneId.of("Asia/Kolkata");
+
+    /**
+     * Resolves the matching clinic branch for the given GPS coordinates.
+     * Prioritizes the employee's assigned home branch; if outside, dynamically checks all other active branches
+     * (e.g. for emergency cross-branch duty like Saibaba Colony staff visiting Kannappa Nagar).
+     */
+    private BranchMatchResult resolveBranchForCoordinates(Employee employee, BigDecimal lat, BigDecimal lng, BigDecimal accuracy) {
+        if (geofenceService.isAbnormalCoordinates(lat, lng)) {
+            throw new IllegalArgumentException("Invalid GPS coordinates detected");
+        }
+
+        List<Branch> activeBranches = branchRepository.findByIsActiveTrue();
+        if (activeBranches.isEmpty()) {
+            throw new IllegalStateException("No active clinic branches found in system");
+        }
+
+        Branch assignedBranch = employee.getBranch();
+        Branch closestBranch = null;
+        double minDistance = Double.MAX_VALUE;
+
+        // 1. Check assigned home branch first
+        if (assignedBranch != null && Boolean.TRUE.equals(assignedBranch.getIsActive())) {
+            double dist = geofenceService.calculateDistanceMeters(
+                lat.doubleValue(), lng.doubleValue(),
+                assignedBranch.getLatitude().doubleValue(), assignedBranch.getLongitude().doubleValue()
+            );
+            if (geofenceService.isWithinGeofenceAdaptive(dist, assignedBranch.getAllowedRadiusMeters(), accuracy)) {
+                return new BranchMatchResult(assignedBranch, dist, false);
+            }
+            minDistance = dist;
+            closestBranch = assignedBranch;
+        }
+
+        // 2. Check all other active clinic branches for cross-branch / emergency duty
+        for (Branch b : activeBranches) {
+            if (assignedBranch != null && b.getId().equals(assignedBranch.getId())) {
+                continue;
+            }
+            double dist = geofenceService.calculateDistanceMeters(
+                lat.doubleValue(), lng.doubleValue(),
+                b.getLatitude().doubleValue(), b.getLongitude().doubleValue()
+            );
+            if (dist < minDistance) {
+                minDistance = dist;
+                closestBranch = b;
+            }
+            if (geofenceService.isWithinGeofenceAdaptive(dist, b.getAllowedRadiusMeters(), accuracy)) {
+                return new BranchMatchResult(b, dist, true);
+            }
+        }
+
+        // Neither home branch nor any other clinic branch matched within geofence range
+        String closestName = closestBranch != null ? closestBranch.getName() : "Clinic";
+        throw new IllegalStateException(String.format(
+            "You are outside the allowed branch location. Closest branch: %s (Distance: %.1fm)",
+            closestName, minDistance));
+    }
+
+    private static class BranchMatchResult {
+        final Branch branch;
+        final double distanceMeters;
+        final boolean isCrossBranch;
+
+        BranchMatchResult(Branch branch, double distanceMeters, boolean isCrossBranch) {
+            this.branch = branch;
+            this.distanceMeters = distanceMeters;
+            this.isCrossBranch = isCrossBranch;
+        }
+    }
 
     @Transactional
     public Attendance checkIn(String username, CheckInRequest request) {
@@ -53,32 +125,14 @@ public class AttendanceService {
             throw new RuntimeException("Inactive employee account cannot check in");
         }
 
-        Branch branch = employee.getBranch();
-        if (branch == null || !Boolean.TRUE.equals(branch.getIsActive())) {
-            throw new RuntimeException("Assigned branch is inactive or not found");
-        }
-
-        // Validate Coordinates
-        if (geofenceService.isAbnormalCoordinates(request.getLatitude(), request.getLongitude())) {
-            throw new IllegalArgumentException("Invalid GPS coordinates detected");
-        }
-
-        double distanceMeters = geofenceService.calculateDistanceMeters(
-            request.getLatitude().doubleValue(),
-            request.getLongitude().doubleValue(),
-            branch.getLatitude().doubleValue(),
-            branch.getLongitude().doubleValue()
-        );
-
-        if (!geofenceService.isWithinGeofenceAdaptive(distanceMeters, branch.getAllowedRadiusMeters(), request.getAccuracy())) {
-            throw new IllegalStateException(String.format("You are outside the allowed branch location. Distance: %.1fm (Allowed: %.1fm)",
-                distanceMeters, branch.getAllowedRadiusMeters().doubleValue()));
-        }
+        BranchMatchResult match = resolveBranchForCoordinates(employee, request.getLatitude(), request.getLongitude(), request.getAccuracy());
+        Branch branch = match.branch;
+        double distanceMeters = match.distanceMeters;
+        boolean isCrossBranch = match.isCrossBranch;
 
         LocalDate today = LocalDate.now(CLINIC_ZONE);
         OffsetDateTime nowServer = OffsetDateTime.now(CLINIC_ZONE);
         LocalTime currentTime = nowServer.toLocalTime();
-
 
         Optional<Attendance> existingOpt = attendanceRepository.findByEmployeeIdAndAttendanceDate(employee.getId(), today);
 
@@ -88,8 +142,14 @@ public class AttendanceService {
                 throw new IllegalStateException("Already checked in for the current session. Please check out before checking in again.");
             }
 
-            // Start a new session (e.g., returning from lunch or break)
+            // Start a new session (e.g., returning from lunch or emergency visit to another branch)
             int sessionNumber = (existing.getSessions() != null ? existing.getSessions().size() : 0) + 1;
+            String sessionNotes = request.getNotes();
+            if (isCrossBranch) {
+                String crossTag = "[Branch: " + branch.getName() + "]";
+                sessionNotes = StringUtils.hasText(sessionNotes) ? crossTag + " " + sessionNotes : crossTag;
+            }
+
             AttendancePunchSession newSession = AttendancePunchSession.builder()
                 .attendance(existing)
                 .sessionNumber(sessionNumber)
@@ -99,7 +159,7 @@ public class AttendanceService {
                 .checkInAccuracy(request.getAccuracy())
                 .checkInDistance(BigDecimal.valueOf(distanceMeters).setScale(2, RoundingMode.HALF_UP))
                 .durationMinutes(0)
-                .notes(request.getNotes())
+                .notes(sessionNotes)
                 .build();
 
             if (existing.getSessions() == null) {
@@ -109,8 +169,10 @@ public class AttendanceService {
             existing.setCurrentSessionStatus("CHECKED_IN");
             Attendance saved = attendanceRepository.save(existing);
 
-            auditService.logAction(user, "CHECK_IN_SESSION_" + sessionNumber, "ATTENDANCE", saved.getId(),
-                "Checked in for Session #" + sessionNumber + " at " + branch.getName() + " (Distance: " + String.format("%.1fm", distanceMeters) + ")");
+            String logMsg = "Checked in for Session #" + sessionNumber + " at " + branch.getName() +
+                (isCrossBranch ? " (Cross-Branch Duty, Home: " + (employee.getBranch() != null ? employee.getBranch().getName() : "N/A") + ")" : "") +
+                " (Distance: " + String.format("%.1fm", distanceMeters) + ")";
+            auditService.logAction(user, "CHECK_IN_SESSION_" + sessionNumber, "ATTENDANCE", saved.getId(), logMsg);
             return saved;
         }
 
@@ -135,6 +197,12 @@ public class AttendanceService {
             status = "ON_LEAVE";
         }
 
+        String initialNotes = request.getNotes();
+        if (isCrossBranch) {
+            String crossTag = "[Branch: " + branch.getName() + "]";
+            initialNotes = StringUtils.hasText(initialNotes) ? crossTag + " " + initialNotes : crossTag;
+        }
+
         Attendance attendance = Attendance.builder()
             .employee(employee)
             .branch(branch)
@@ -148,12 +216,11 @@ public class AttendanceService {
             .status(status)
             .isLate(isLate)
             .isEarlyCheckout(false)
-            .notes(request.getNotes())
+            .notes(initialNotes)
             .totalWorkMinutes(0)
             .currentSessionStatus("CHECKED_IN")
             .sessions(new ArrayList<>())
             .build();
-
 
         AttendancePunchSession initialSession = AttendancePunchSession.builder()
             .attendance(attendance)
@@ -164,14 +231,16 @@ public class AttendanceService {
             .checkInAccuracy(request.getAccuracy())
             .checkInDistance(BigDecimal.valueOf(distanceMeters).setScale(2, RoundingMode.HALF_UP))
             .durationMinutes(0)
-            .notes(request.getNotes())
+            .notes(initialNotes)
             .build();
 
         attendance.getSessions().add(initialSession);
         Attendance saved = attendanceRepository.save(attendance);
 
-        auditService.logAction(user, "CHECK_IN", "ATTENDANCE", saved.getId(),
-            "Checked in at " + branch.getName() + " (Distance: " + String.format("%.1fm", distanceMeters) + ")");
+        String logMsg = "Checked in at " + branch.getName() +
+            (isCrossBranch ? " (Cross-Branch Duty, Home: " + (employee.getBranch() != null ? employee.getBranch().getName() : "N/A") + ")" : "") +
+            " (Distance: " + String.format("%.1fm", distanceMeters) + ")";
+        auditService.logAction(user, "CHECK_IN", "ATTENDANCE", saved.getId(), logMsg);
         return saved;
     }
 
@@ -191,23 +260,9 @@ public class AttendanceService {
             throw new IllegalStateException("Already checked out for the current session. Please check in to start a new session.");
         }
 
-        Branch branch = attendance.getBranch();
-
-        if (geofenceService.isAbnormalCoordinates(request.getLatitude(), request.getLongitude())) {
-            throw new IllegalArgumentException("Invalid GPS coordinates detected");
-        }
-
-        double distanceMeters = geofenceService.calculateDistanceMeters(
-            request.getLatitude().doubleValue(),
-            request.getLongitude().doubleValue(),
-            branch.getLatitude().doubleValue(),
-            branch.getLongitude().doubleValue()
-        );
-
-        if (!geofenceService.isWithinGeofenceAdaptive(distanceMeters, branch.getAllowedRadiusMeters(), request.getAccuracy())) {
-            throw new IllegalStateException(String.format("You are outside the allowed branch location for check-out. Distance: %.1fm", distanceMeters));
-        }
-
+        BranchMatchResult match = resolveBranchForCoordinates(employee, request.getLatitude(), request.getLongitude(), request.getAccuracy());
+        Branch branch = match.branch;
+        double distanceMeters = match.distanceMeters;
 
         OffsetDateTime nowServer = OffsetDateTime.now(CLINIC_ZONE);
         LocalTime currentTime = nowServer.toLocalTime();

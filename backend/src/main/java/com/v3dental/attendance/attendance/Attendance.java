@@ -83,8 +83,23 @@ public class Attendance {
     @Column(columnDefinition = "TEXT")
     private String notes;
 
+    @Column(name = "total_work_minutes", nullable = false)
+    @Builder.Default
+    private Integer totalWorkMinutes = 0;
+
+    @Column(name = "current_session_status", nullable = false, length = 20)
+    @Builder.Default
+    private String currentSessionStatus = "CHECKED_IN"; // CHECKED_IN, CHECKED_OUT
+
+    @OneToMany(mappedBy = "attendance", cascade = CascadeType.ALL, fetch = FetchType.EAGER, orphanRemoval = true)
+    @OrderBy("sessionNumber ASC")
+    @com.fasterxml.jackson.annotation.JsonManagedReference
+    @Builder.Default
+    private java.util.List<AttendancePunchSession> sessions = new java.util.ArrayList<>();
+
     @Column(name = "created_at", updatable = false)
     private OffsetDateTime createdAt;
+
 
     @Column(name = "updated_at")
     private OffsetDateTime updatedAt;

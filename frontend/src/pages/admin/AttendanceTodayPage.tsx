@@ -5,12 +5,22 @@ import { branchService } from '../../services/branchService';
 import { regularizationService } from '../../services/regularizationService';
 import { showAlert } from '../../utils/alerts';
 import ManualAttendanceModal from '../../components/attendance/ManualAttendanceModal';
-import { CalendarCheck, Filter, Plus, Clock, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
-import type { AttendanceRegularizationRequest } from '../../types';
+import {
+  CalendarCheck, Filter, Plus, Clock, CheckCircle2,
+  XCircle, AlertCircle, ChevronDown, ChevronUp, Timer
+} from 'lucide-react';
+import type { AttendanceRegularizationRequest, Attendance } from '../../types';
 
 function formatTime(iso?: string | null) {
-  if (!iso) return '--';
+  if (!iso) return '--:--';
   return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+}
+
+function formatMinutes(totalMins?: number | null) {
+  if (!totalMins) return '0 hrs 00 mins';
+  const hrs = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  return `${hrs}h ${mins.toString().padStart(2, '0')}m`;
 }
 
 function statusBadge(status: string, isLate: boolean) {
@@ -29,6 +39,7 @@ export default function AttendanceTodayPage() {
   const [branchId, setBranchId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'live' | 'requests'>('live');
   const [showManualModal, setShowManualModal] = useState(false);
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
 
   // Live Attendance
   const { data: attendance, isLoading, refetch: refetchAttendance } = useQuery({
@@ -37,7 +48,7 @@ export default function AttendanceTodayPage() {
       startDate: today, endDate: today,
       ...(branchId ? { branchId: Number(branchId) } : {})
     }),
-    refetchInterval: 30000,
+    refetchInterval: 15000,
   });
 
   const { data: branches } = useQuery({
@@ -97,9 +108,9 @@ export default function AttendanceTodayPage() {
     }
   };
 
-  const checkedIn = attendance?.filter(a => a.checkInAt && !a.checkOutAt).length || 0;
+  const currentlyInStaff = attendance?.filter(a => a.currentSessionStatus === 'CHECKED_IN').length || 0;
   const late = attendance?.filter(a => a.isLate).length || 0;
-  const checkedOut = attendance?.filter(a => a.checkOutAt).length || 0;
+  const checkedOutStaff = attendance?.filter(a => a.currentSessionStatus === 'CHECKED_OUT').length || 0;
   const pendingRequests = regRequests?.filter(r => r.status === 'PENDING') || [];
 
   return (
@@ -107,10 +118,10 @@ export default function AttendanceTodayPage() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <h1 style={{ fontSize: '1.4rem', fontWeight: 800 }}>Attendance & Missed Punches</h1>
+          <h1 style={{ fontSize: '1.4rem', fontWeight: 800 }}>Attendance & Staff Working Hours</h1>
           <p style={{ color: 'var(--text-2)', fontSize: '0.875rem' }}>
             {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
-            {' · '}Auto-refreshes every 30s
+            {' · '}Auto-refreshes every 15s
           </p>
         </div>
         <button
@@ -183,13 +194,13 @@ export default function AttendanceTodayPage() {
           <div className="stat-grid">
             <div className="stat-card">
               <div className="stat-card-icon" style={{ background: 'rgba(6,182,212,0.15)' }}><CalendarCheck size={20} color="var(--cyan)" /></div>
-              <div className="stat-card-value" style={{ color: 'var(--cyan)' }}>{checkedIn}</div>
-              <div className="stat-card-label">Currently In</div>
+              <div className="stat-card-value" style={{ color: 'var(--cyan)' }}>{currentlyInStaff}</div>
+              <div className="stat-card-label">Currently In Clinic</div>
             </div>
             <div className="stat-card">
               <div className="stat-card-icon" style={{ background: 'rgba(16,185,129,0.15)' }}><CalendarCheck size={20} color="var(--emerald)" /></div>
-              <div className="stat-card-value" style={{ color: 'var(--emerald)' }}>{checkedOut}</div>
-              <div className="stat-card-label">Checked Out</div>
+              <div className="stat-card-value" style={{ color: 'var(--emerald)' }}>{checkedOutStaff}</div>
+              <div className="stat-card-label">Checked Out (Break/Done)</div>
             </div>
             <div className="stat-card">
               <div className="stat-card-icon" style={{ background: 'rgba(245,158,11,0.15)' }}><CalendarCheck size={20} color="var(--amber)" /></div>
@@ -199,7 +210,7 @@ export default function AttendanceTodayPage() {
             <div className="stat-card">
               <div className="stat-card-icon" style={{ background: 'rgba(139,92,246,0.15)' }}><CalendarCheck size={20} color="var(--violet)" /></div>
               <div className="stat-card-value" style={{ color: 'var(--violet)' }}>{attendance?.length || 0}</div>
-              <div className="stat-card-label">Total Entries</div>
+              <div className="stat-card-label">Total Staff Logged</div>
             </div>
           </div>
 
@@ -226,32 +237,188 @@ export default function AttendanceTodayPage() {
               <p>No attendance records for today</p>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-              {attendance.map(a => (
-                <div key={a.id} className="glass-card" style={{ padding: '0.9rem 1.25rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>
-                        {a.employee.firstName} {a.employee.lastName}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {attendance.map((a: Attendance) => {
+                const isCurrentlyIn = a.currentSessionStatus === 'CHECKED_IN';
+                const sessions = a.sessions || [];
+                const isExpanded = expandedRow === a.id;
+                const hoursFormatted = formatMinutes(a.totalWorkMinutes);
+
+                return (
+                  <div
+                    key={a.id}
+                    className="glass-card"
+                    style={{
+                      padding: '1rem 1.25rem',
+                      borderLeft: isCurrentlyIn ? '4px solid var(--emerald)' : '4px solid var(--border)',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
+                      {/* Left: Employee Info */}
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-1)' }}>
+                            {a.employee.firstName} {a.employee.lastName}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              padding: '0.15rem 0.5rem',
+                              borderRadius: '4px',
+                              background: 'rgba(255,255,255,0.06)',
+                              color: 'var(--text-2)',
+                            }}
+                          >
+                            {a.employee.user?.role?.name || a.employee.designation || 'Staff'}
+                          </span>
+                          {statusBadge(a.status, a.isLate)}
+                        </div>
+
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-3)', marginTop: '0.2rem' }}>
+                          {a.branch?.name || 'Clinic'} · {a.shift?.name || 'Standard Shift'}
+                          {a.notes && <span style={{ color: 'var(--cyan)', marginLeft: '0.4rem' }}>({a.notes})</span>}
+                        </div>
                       </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', marginTop: '0.1rem' }}>
-                        {a.branch?.name || 'Clinic'} · {a.shift?.name || 'Default Shift'}
-                        {a.notes && <span style={{ color: 'var(--cyan)', marginLeft: '0.5rem' }}>({a.notes})</span>}
+
+                      {/* Right: Total Clinic Hours Badge */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                        <div
+                          style={{
+                            background: 'rgba(6, 182, 212, 0.12)',
+                            border: '1px solid rgba(6, 182, 212, 0.3)',
+                            padding: '0.4rem 0.85rem',
+                            borderRadius: 'var(--r-md)',
+                            textAlign: 'right',
+                          }}
+                        >
+                          <div style={{ fontSize: '0.68rem', color: 'var(--cyan)', fontWeight: 700, textTransform: 'uppercase' }}>
+                            Total Worked Today
+                          </div>
+                          <div style={{ fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+                            <Timer size={14} color="var(--cyan)" />
+                            {hoursFormatted}
+                          </div>
+                        </div>
+
+                        <span
+                          style={{
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            padding: '0.35rem 0.7rem',
+                            borderRadius: '999px',
+                            background: isCurrentlyIn ? 'rgba(16,185,129,0.18)' : 'rgba(244,63,94,0.12)',
+                            color: isCurrentlyIn ? 'var(--emerald)' : 'var(--rose)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 5,
+                          }}
+                        >
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: isCurrentlyIn ? 'var(--emerald)' : 'var(--rose)' }} />
+                          {isCurrentlyIn ? `In (Session #${sessions.length || 1})` : 'Checked Out'}
+                        </span>
                       </div>
                     </div>
-                    {statusBadge(a.status, a.isLate)}
-                  </div>
-                  <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.55rem', fontSize: '0.82rem', flexWrap: 'wrap' }}>
-                    <span style={{ color: 'var(--emerald)' }}>↑ In: {formatTime(a.checkInAt)}</span>
-                    <span style={{ color: 'var(--rose)' }}>↓ Out: {formatTime(a.checkOutAt)}</span>
-                    {a.checkInDistance != null ? (
-                      <span style={{ color: 'var(--text-3)' }}>GPS: {a.checkInDistance}m</span>
-                    ) : (
-                      <span style={{ color: 'var(--cyan)' }}>Manual / Regularized</span>
+
+                    {/* Punch Times Bar */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginTop: '0.75rem',
+                        paddingTop: '0.65rem',
+                        borderTop: '1px solid rgba(255,255,255,0.05)',
+                        fontSize: '0.82rem',
+                        flexWrap: 'wrap',
+                        gap: '0.5rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap' }}>
+                        <span style={{ color: 'var(--emerald)' }}>↑ First In: {formatTime(a.checkInAt)}</span>
+                        <span style={{ color: a.checkOutAt ? 'var(--rose)' : 'var(--text-3)' }}>
+                          ↓ Latest Out: {a.checkOutAt ? formatTime(a.checkOutAt) : 'Currently In Duty'}
+                        </span>
+                        {a.checkInDistance != null ? (
+                          <span style={{ color: 'var(--text-3)' }}>GPS: {a.checkInDistance}m</span>
+                        ) : (
+                          <span style={{ color: 'var(--cyan)' }}>Manual / Regularized</span>
+                        )}
+                      </div>
+
+                      {sessions.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setExpandedRow(isExpanded ? null : a.id)}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--primary)',
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 3,
+                          }}
+                        >
+                          {sessions.length} {sessions.length === 1 ? 'Session' : 'Sessions'} (Breakdown)
+                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Expandable Session Breakdown */}
+                    {isExpanded && sessions.length > 0 && (
+                      <div
+                        style={{
+                          marginTop: '0.75rem',
+                          background: 'rgba(0, 0, 0, 0.25)',
+                          borderRadius: '8px',
+                          padding: '0.75rem 1rem',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.5rem',
+                        }}
+                      >
+                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase' }}>
+                          Today's Session Details:
+                        </div>
+                        {sessions.map((s, idx) => {
+                          const isSessIn = !s.checkOutAt;
+                          const sessMins = s.durationMinutes || 0;
+                          return (
+                            <div
+                              key={s.id || idx}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                fontSize: '0.8rem',
+                                padding: '0.35rem 0',
+                                borderBottom: idx < sessions.length - 1 ? '1px dashed rgba(255,255,255,0.06)' : 'none',
+                              }}
+                            >
+                              <div>
+                                <strong style={{ color: 'var(--text-1)' }}>Session #{s.sessionNumber || idx + 1}:</strong>{' '}
+                                <span style={{ color: 'var(--emerald)' }}>{formatTime(s.checkInAt)}</span>
+                                {' → '}
+                                <span style={{ color: s.checkOutAt ? 'var(--rose)' : 'var(--cyan)' }}>
+                                  {s.checkOutAt ? formatTime(s.checkOutAt) : 'Active In Duty'}
+                                </span>
+                              </div>
+                              <div style={{ fontWeight: 700, color: isSessIn ? 'var(--cyan)' : 'var(--text-1)' }}>
+                                {isSessIn ? 'In Progress' : `${Math.floor(sessMins / 60)}h ${sessMins % 60}m`}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </>

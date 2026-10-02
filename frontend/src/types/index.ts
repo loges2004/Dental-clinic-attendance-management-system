@@ -65,6 +65,23 @@ export interface Shift {
   isActive: boolean;
 }
 
+export interface AttendancePunchSession {
+  id: number;
+  sessionNumber: number;
+  checkInAt: string;
+  checkInLatitude: number | null;
+  checkInLongitude: number | null;
+  checkInAccuracy: number | null;
+  checkInDistance: number | null;
+  checkOutAt: string | null;
+  checkOutLatitude: number | null;
+  checkOutLongitude: number | null;
+  checkOutAccuracy: number | null;
+  checkOutDistance: number | null;
+  durationMinutes: number;
+  notes: string | null;
+}
+
 export interface Attendance {
   id: number;
   employee: Employee;
@@ -85,7 +102,11 @@ export interface Attendance {
   isLate: boolean;
   isEarlyCheckout: boolean;
   notes: string | null;
+  totalWorkMinutes: number;
+  currentSessionStatus: 'CHECKED_IN' | 'CHECKED_OUT';
+  sessions?: AttendancePunchSession[];
 }
+
 
 export interface AttendanceRegularizationRequest {
   id: number;

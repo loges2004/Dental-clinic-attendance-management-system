@@ -99,11 +99,17 @@ public class AttendanceRegularizationService {
         OffsetDateTime inTime = date.atTime(req.getRequestedCheckIn()).atZone(CLINIC_ZONE).toOffsetDateTime();
         att.setCheckInAt(inTime);
 
+        int workMinutes = 0;
         if (req.getRequestedCheckOut() != null) {
             OffsetDateTime outTime = date.atTime(req.getRequestedCheckOut()).atZone(CLINIC_ZONE).toOffsetDateTime();
             att.setCheckOutAt(outTime);
+            workMinutes = (int) Math.max(0, java.time.Duration.between(inTime, outTime).toMinutes());
+            att.setCurrentSessionStatus("CHECKED_OUT");
+        } else {
+            att.setCurrentSessionStatus("CHECKED_IN");
         }
 
+        att.setTotalWorkMinutes(workMinutes);
         att.setCheckInLatitude(branch.getLatitude());
         att.setCheckInLongitude(branch.getLongitude());
         att.setCheckInAccuracy(BigDecimal.valueOf(10.0));
@@ -120,6 +126,19 @@ public class AttendanceRegularizationService {
         att.setIsLate(isLate);
         att.setStatus(isLate ? "LATE" : "PRESENT");
         att.setNotes("Regularized by Admin: " + req.getReason());
+
+        if (att.getSessions() == null) {
+            att.setSessions(new java.util.ArrayList<>());
+        }
+        att.getSessions().clear();
+        att.getSessions().add(com.v3dental.attendance.attendance.AttendancePunchSession.builder()
+            .attendance(att)
+            .sessionNumber(1)
+            .checkInAt(inTime)
+            .checkOutAt(att.getCheckOutAt())
+            .durationMinutes(workMinutes)
+            .notes(att.getNotes())
+            .build());
 
         attendanceRepository.save(att);
 
@@ -174,11 +193,17 @@ public class AttendanceRegularizationService {
         OffsetDateTime inTime = date.atTime(dto.getCheckInTime()).atZone(CLINIC_ZONE).toOffsetDateTime();
         att.setCheckInAt(inTime);
 
+        int workMinutes = 0;
         if (dto.getCheckOutTime() != null) {
             OffsetDateTime outTime = date.atTime(dto.getCheckOutTime()).atZone(CLINIC_ZONE).toOffsetDateTime();
             att.setCheckOutAt(outTime);
+            workMinutes = (int) Math.max(0, java.time.Duration.between(inTime, outTime).toMinutes());
+            att.setCurrentSessionStatus("CHECKED_OUT");
+        } else {
+            att.setCurrentSessionStatus("CHECKED_IN");
         }
 
+        att.setTotalWorkMinutes(workMinutes);
         att.setCheckInLatitude(branch.getLatitude());
         att.setCheckInLongitude(branch.getLongitude());
         att.setCheckInAccuracy(BigDecimal.valueOf(10.0));
@@ -195,9 +220,23 @@ public class AttendanceRegularizationService {
         att.setStatus(dto.getStatus() != null ? dto.getStatus() : (isLate ? "LATE" : "PRESENT"));
         att.setNotes("Manual Entry by Admin: " + (dto.getReason() != null ? dto.getReason() : "Regularized"));
 
+        if (att.getSessions() == null) {
+            att.setSessions(new java.util.ArrayList<>());
+        }
+        att.getSessions().clear();
+        att.getSessions().add(com.v3dental.attendance.attendance.AttendancePunchSession.builder()
+            .attendance(att)
+            .sessionNumber(1)
+            .checkInAt(inTime)
+            .checkOutAt(att.getCheckOutAt())
+            .durationMinutes(workMinutes)
+            .notes(att.getNotes())
+            .build());
+
         Attendance saved = attendanceRepository.save(att);
         auditService.logAction(adminUser, "MANUAL_ATTENDANCE_CREATED", "ATTENDANCE", saved.getId(),
             "Manually recorded attendance for " + employee.getFirstName() + " " + employee.getLastName() + " on " + date);
         return saved;
     }
+
 }

@@ -68,19 +68,21 @@ public class ReportService {
         writer.println("Generated At: " + java.time.OffsetDateTime.now());
         writer.println("Total Records: " + records.size());
         writer.println("==================================================================================");
-        writer.println(String.format("%-12s | %-12s | %-20s | %-15s | %-10s | %-10s | %-10s",
-            "Date", "Emp Code", "Employee Name", "Branch", "Check In", "Check Out", "Status"));
-        writer.println("----------------------------------------------------------------------------------");
+        writer.println(String.format("%-12s | %-12s | %-20s | %-15s | %-10s | %-10s | %-12s | %-10s",
+            "Date", "Emp Code", "Employee Name", "Branch", "Check In", "Check Out", "Total Hours", "Status"));
+        writer.println("--------------------------------------------------------------------------------------------------");
 
         for (Attendance a : records) {
             String checkIn = (a.getCheckInAt() != null) ? a.getCheckInAt().format(DateTimeFormatter.ofPattern("HH:mm")) : "--:--";
             String checkOut = (a.getCheckOutAt() != null) ? a.getCheckOutAt().format(DateTimeFormatter.ofPattern("HH:mm")) : "--:--";
             String empName = a.getEmployee().getFirstName() + " " + a.getEmployee().getLastName();
-            writer.println(String.format("%-12s | %-12s | %-20s | %-15s | %-10s | %-10s | %-10s",
-                a.getAttendanceDate(), a.getEmployee().getEmployeeCode(), empName, a.getBranch().getCode(), checkIn, checkOut, a.getStatus()));
+            int totalMins = a.getTotalWorkMinutes() != null ? a.getTotalWorkMinutes() : 0;
+            String totalHours = (totalMins / 60) + "h " + (totalMins % 60) + "m";
+            writer.println(String.format("%-12s | %-12s | %-20s | %-15s | %-10s | %-10s | %-12s | %-10s",
+                a.getAttendanceDate(), a.getEmployee().getEmployeeCode(), empName, a.getBranch().getCode(), checkIn, checkOut, totalHours, a.getStatus()));
         }
 
-        writer.println("==================================================================================");
+        writer.println("==================================================================================================");
         writer.println("END OF REPORT — V3 DENTAL CLINIC ATTENDANCE SYSTEM");
         writer.flush();
         return out.toByteArray();
@@ -95,16 +97,17 @@ public class ReportService {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         PrintWriter writer = new PrintWriter(out);
 
-        writer.println("Date,Employee Code,Employee Name,Designation,Branch,Shift,Check In Time,Check In GPS,Distance (m),Check Out Time,Status,Is Late,Is Early Checkout");
+        writer.println("Date,Employee Code,Employee Name,Designation,Branch,Shift,Check In Time,Check Out Time,Total Work Minutes,Total Work Hours,Status,Is Late,Is Early Checkout");
 
         for (Attendance a : records) {
             String checkIn = (a.getCheckInAt() != null) ? a.getCheckInAt().toString() : "";
             String checkOut = (a.getCheckOutAt() != null) ? a.getCheckOutAt().toString() : "";
             String empName = a.getEmployee().getFirstName() + " " + a.getEmployee().getLastName();
-            String gps = a.getCheckInLatitude() + ";" + a.getCheckInLongitude();
             String shiftName = (a.getShift() != null) ? a.getShift().getName() : "N/A";
+            int totalMins = a.getTotalWorkMinutes() != null ? a.getTotalWorkMinutes() : 0;
+            String totalHoursFormatted = String.format("%.2f hrs (%dh %dm)", totalMins / 60.0, totalMins / 60, totalMins % 60);
 
-            writer.println(String.format("%s,\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",%.2f,\"%s\",\"%s\",%b,%b",
+            writer.println(String.format("%s,\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",%d,\"%s\",\"%s\",%b,%b",
                 a.getAttendanceDate(),
                 a.getEmployee().getEmployeeCode(),
                 empName,
@@ -112,14 +115,15 @@ public class ReportService {
                 a.getBranch().getName(),
                 shiftName,
                 checkIn,
-                gps,
-                a.getCheckInDistance(),
                 checkOut,
+                totalMins,
+                totalHoursFormatted,
                 a.getStatus(),
                 a.getIsLate(),
                 a.getIsEarlyCheckout()
             ));
         }
+
 
         writer.flush();
         return out.toByteArray();

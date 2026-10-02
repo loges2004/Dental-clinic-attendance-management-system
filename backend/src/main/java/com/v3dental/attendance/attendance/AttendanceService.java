@@ -17,10 +17,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,6 +31,7 @@ import java.util.Optional;
 public class AttendanceService {
 
     private final AttendanceRepository attendanceRepository;
+    private final AttendancePunchSessionRepository punchSessionRepository;
     private final EmployeeRepository employeeRepository;
     private final ShiftRepository shiftRepository;
     private final LeaveRequestRepository leaveRequestRepository;
@@ -61,7 +64,7 @@ public class AttendanceService {
         }
 
         if (!geofenceService.isAccuracyValid(request.getAccuracy(), branch.getMaxGpsAccuracyMeters())) {
-            throw new IllegalArgumentException("Location accuracy is too low (" + request.getAccuracy() + "m). Please try again from a location with better GPS signal.");
+            throw new IllegalArgumentException("Location accuracy is too low (" + request.getAccuracy() + "m). Please try again with better GPS signal.");
         }
 
         double distanceMeters = geofenceService.calculateDistanceMeters(
@@ -77,17 +80,46 @@ public class AttendanceService {
         }
 
         LocalDate today = LocalDate.now(CLINIC_ZONE);
-        Optional<Attendance> existingOpt = attendanceRepository.findByEmployeeIdAndAttendanceDate(employee.getId(), today);
-        if (existingOpt.isPresent()) {
-            throw new IllegalStateException("Already checked in for today");
-        }
-
-        // Determine Shift & Late Status
-        List<Shift> shifts = shiftRepository.findByBranchId(branch.getId());
-        Shift assignedShift = shifts.isEmpty() ? null : shifts.get(0);
-
         OffsetDateTime nowServer = OffsetDateTime.now(CLINIC_ZONE);
         LocalTime currentTime = nowServer.toLocalTime();
+
+        Optional<Attendance> existingOpt = attendanceRepository.findByEmployeeIdAndAttendanceDate(employee.getId(), today);
+
+        if (existingOpt.isPresent()) {
+            Attendance existing = existingOpt.get();
+            if ("CHECKED_IN".equalsIgnoreCase(existing.getCurrentSessionStatus())) {
+                throw new IllegalStateException("Already checked in for the current session. Please check out before checking in again.");
+            }
+
+            // Start a new session (e.g., returning from lunch or break)
+            int sessionNumber = (existing.getSessions() != null ? existing.getSessions().size() : 0) + 1;
+            AttendancePunchSession newSession = AttendancePunchSession.builder()
+                .attendance(existing)
+                .sessionNumber(sessionNumber)
+                .checkInAt(nowServer)
+                .checkInLatitude(request.getLatitude())
+                .checkInLongitude(request.getLongitude())
+                .checkInAccuracy(request.getAccuracy())
+                .checkInDistance(BigDecimal.valueOf(distanceMeters).setScale(2, RoundingMode.HALF_UP))
+                .durationMinutes(0)
+                .notes(request.getNotes())
+                .build();
+
+            if (existing.getSessions() == null) {
+                existing.setSessions(new ArrayList<>());
+            }
+            existing.getSessions().add(newSession);
+            existing.setCurrentSessionStatus("CHECKED_IN");
+            Attendance saved = attendanceRepository.save(existing);
+
+            auditService.logAction(user, "CHECK_IN_SESSION_" + sessionNumber, "ATTENDANCE", saved.getId(),
+                "Checked in for Session #" + sessionNumber + " at " + branch.getName() + " (Distance: " + String.format("%.1fm", distanceMeters) + ")");
+            return saved;
+        }
+
+        // First check-in of the day
+        List<Shift> shifts = shiftRepository.findByBranchId(branch.getId());
+        Shift assignedShift = shifts.isEmpty() ? null : shifts.get(0);
 
         boolean isLate = false;
         String status = "PRESENT";
@@ -101,7 +133,6 @@ public class AttendanceService {
             }
         }
 
-        // Check if employee has an approved leave today
         List<LeaveRequest> approvedLeaves = leaveRequestRepository.findApprovedLeaveOnDate(employee.getId(), today);
         if (!approvedLeaves.isEmpty()) {
             status = "ON_LEAVE";
@@ -120,10 +151,28 @@ public class AttendanceService {
             .status(status)
             .isLate(isLate)
             .notes(request.getNotes())
+            .totalWorkMinutes(0)
+            .currentSessionStatus("CHECKED_IN")
+            .sessions(new ArrayList<>())
             .build();
 
+        AttendancePunchSession initialSession = AttendancePunchSession.builder()
+            .attendance(attendance)
+            .sessionNumber(1)
+            .checkInAt(nowServer)
+            .checkInLatitude(request.getLatitude())
+            .checkInLongitude(request.getLongitude())
+            .checkInAccuracy(request.getAccuracy())
+            .checkInDistance(BigDecimal.valueOf(distanceMeters).setScale(2, RoundingMode.HALF_UP))
+            .durationMinutes(0)
+            .notes(request.getNotes())
+            .build();
+
+        attendance.getSessions().add(initialSession);
         Attendance saved = attendanceRepository.save(attendance);
-        auditService.logAction(user, "CHECK_IN", "ATTENDANCE", saved.getId(), "Checked in at " + branch.getName() + " (Distance: " + String.format("%.1fm", distanceMeters) + ")");
+
+        auditService.logAction(user, "CHECK_IN", "ATTENDANCE", saved.getId(),
+            "Checked in at " + branch.getName() + " (Distance: " + String.format("%.1fm", distanceMeters) + ")");
         return saved;
     }
 
@@ -139,8 +188,8 @@ public class AttendanceService {
         Attendance attendance = attendanceRepository.findByEmployeeIdAndAttendanceDate(employee.getId(), today)
             .orElseThrow(() -> new IllegalStateException("No active check-in record found for today"));
 
-        if (attendance.getCheckOutAt() != null) {
-            throw new IllegalStateException("Already checked out for today");
+        if ("CHECKED_OUT".equalsIgnoreCase(attendance.getCurrentSessionStatus())) {
+            throw new IllegalStateException("Already checked out for the current session. Please check in to start a new session.");
         }
 
         Branch branch = attendance.getBranch();
@@ -175,19 +224,53 @@ public class AttendanceService {
             }
         }
 
+        // Close the active session
+        List<AttendancePunchSession> sessions = attendance.getSessions();
+        AttendancePunchSession openSession = null;
+        if (sessions != null && !sessions.isEmpty()) {
+            for (int i = sessions.size() - 1; i >= 0; i--) {
+                if (sessions.get(i).getCheckOutAt() == null) {
+                    openSession = sessions.get(i);
+                    break;
+                }
+            }
+        }
+
+        if (openSession != null) {
+            openSession.setCheckOutAt(nowServer);
+            openSession.setCheckOutLatitude(request.getLatitude());
+            openSession.setCheckOutLongitude(request.getLongitude());
+            openSession.setCheckOutAccuracy(request.getAccuracy());
+            openSession.setCheckOutDistance(BigDecimal.valueOf(distanceMeters).setScale(2, RoundingMode.HALF_UP));
+
+            long sessionMins = Duration.between(openSession.getCheckInAt(), nowServer).toMinutes();
+            openSession.setDurationMinutes((int) Math.max(0, sessionMins));
+        }
+
+        // Calculate cumulative total minutes across all sessions
+        int totalMins = 0;
+        if (sessions != null) {
+            totalMins = sessions.stream()
+                .mapToInt(s -> s.getDurationMinutes() != null ? s.getDurationMinutes() : 0)
+                .sum();
+        }
+
         attendance.setCheckOutAt(nowServer);
         attendance.setCheckOutLatitude(request.getLatitude());
         attendance.setCheckOutLongitude(request.getLongitude());
         attendance.setCheckOutAccuracy(request.getAccuracy());
         attendance.setCheckOutDistance(BigDecimal.valueOf(distanceMeters).setScale(2, RoundingMode.HALF_UP));
         attendance.setIsEarlyCheckout(isEarly);
+        attendance.setTotalWorkMinutes(totalMins);
+        attendance.setCurrentSessionStatus("CHECKED_OUT");
 
         if (request.getNotes() != null && !request.getNotes().isBlank()) {
             attendance.setNotes((attendance.getNotes() != null ? attendance.getNotes() + " | " : "") + request.getNotes());
         }
 
         Attendance saved = attendanceRepository.save(attendance);
-        auditService.logAction(user, "CHECK_OUT", "ATTENDANCE", saved.getId(), "Checked out at " + branch.getName());
+        auditService.logAction(user, "CHECK_OUT", "ATTENDANCE", saved.getId(),
+            "Checked out at " + branch.getName() + " (Session completed. Total working hours today: " + (totalMins / 60) + "h " + (totalMins % 60) + "m)");
         return saved;
     }
 
@@ -222,6 +305,11 @@ public class AttendanceService {
         if (req.getStatus() != null) attendance.setStatus(req.getStatus());
         if (req.getReason() != null) {
             attendance.setNotes((attendance.getNotes() != null ? attendance.getNotes() + " | Corrected: " : "Corrected: ") + req.getReason());
+        }
+
+        if (attendance.getCheckInAt() != null && attendance.getCheckOutAt() != null) {
+            long totalMins = Duration.between(attendance.getCheckInAt(), attendance.getCheckOutAt()).toMinutes();
+            attendance.setTotalWorkMinutes((int) Math.max(0, totalMins));
         }
 
         Attendance saved = attendanceRepository.save(attendance);

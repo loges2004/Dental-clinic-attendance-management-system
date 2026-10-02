@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { leaveService } from '../../services/leaveService';
 import api from '../../services/api';
 import { Users, Plus, Minus, ArrowUpDown } from 'lucide-react';
+import { showAlert } from '../../utils/alerts';
 import type { Employee, LeavePeriod } from '../../types';
 
 async function getEmployeeBalances(): Promise<{ employee: Employee; balance: LeavePeriod }[]> {
@@ -15,7 +16,6 @@ export default function LeaveBalancesPage() {
   const [adjustModal, setAdjustModal] = useState<{ employeeId: number; name: string } | null>(null);
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
-  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const { data: balances, isLoading } = useQuery({
     queryKey: ['leave-balances-all'],
@@ -27,12 +27,12 @@ export default function LeaveBalancesPage() {
       leaveService.adjustLeaveBalance(data.employeeId, data.amount, data.reason),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['leave-balances-all'] });
-      setMsg({ type: 'success', text: '✓ Leave balance adjusted successfully!' });
+      showAlert.success('Balance Adjusted!', 'Leave balance updated successfully.');
       setAdjustModal(null);
       setAmount('');
       setReason('');
     },
-    onError: (err: any) => setMsg({ type: 'error', text: err.response?.data?.message || 'Adjustment failed' }),
+    onError: (err: any) => showAlert.error('Adjustment Failed', err.response?.data?.message || 'Could not adjust balance.'),
   });
 
   const handleAdjust = () => {
@@ -46,12 +46,6 @@ export default function LeaveBalancesPage() {
         <h1 style={{ fontSize: '1.4rem', fontWeight: 800 }}>Leave Balances</h1>
         <p style={{ color: 'var(--text-2)', fontSize: '0.875rem' }}>View and adjust employee leave balances for the current period</p>
       </div>
-
-      {msg && (
-        <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--r-sm)', fontSize: '0.875rem', fontWeight: 600, background: msg.type === 'success' ? 'rgba(16,185,129,0.15)' : 'rgba(244,63,94,0.15)', color: msg.type === 'success' ? 'var(--emerald)' : 'var(--rose)', border: `1px solid ${msg.type === 'success' ? 'rgba(16,185,129,0.30)' : 'rgba(244,63,94,0.30)'}` }}>
-          {msg.text}
-        </div>
-      )}
 
       {isLoading ? (
         <div className="loading-center"><div className="spinner" /></div>

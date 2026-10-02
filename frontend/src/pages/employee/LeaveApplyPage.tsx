@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { leaveService } from '../../services/leaveService';
+import { showAlert } from '../../utils/alerts';
 
 export default function LeaveApplyPage() {
   const [form, setForm] = useState({
@@ -11,14 +12,13 @@ export default function LeaveApplyPage() {
     reason: '',
   });
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const { data: leaveTypes } = useQuery({
     queryKey: ['leave-types'],
     queryFn: () => leaveService.getLeaveTypes(),
   });
 
-  const { data: balance } = useQuery({
+  const { data: balance, refetch: refetchBalance } = useQuery({
     queryKey: ['leave-balance'],
     queryFn: () => leaveService.getMyBalance(),
   });
@@ -34,15 +34,15 @@ export default function LeaveApplyPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const duration = calcDuration();
-    if (!form.leaveTypeId || !form.startDate || !form.endDate || !form.reason) {
-      setMsg({ type: 'error', text: 'All fields are required' });
+    if (!form.leaveTypeId || !form.startDate || !form.endDate || !form.reason.trim()) {
+      showAlert.warning('Incomplete Form', 'Please fill in all required fields (Leave Type, Dates, Reason).');
       return;
     }
     if (duration <= 0) {
-      setMsg({ type: 'error', text: 'End date must be on or after start date' });
+      showAlert.warning('Invalid Date Range', 'End date must be on or after the start date.');
       return;
     }
-    setLoading(true); setMsg(null);
+    setLoading(true);
     try {
       await leaveService.applyForLeave({
         leaveTypeId: Number(form.leaveTypeId),
@@ -50,12 +50,13 @@ export default function LeaveApplyPage() {
         endDate: form.endDate,
         duration,
         durationType: form.durationType,
-        reason: form.reason,
+        reason: form.reason.trim(),
       });
-      setMsg({ type: 'success', text: '✓ Leave request submitted successfully!' });
+      showAlert.success('Leave Request Submitted!', 'Your application has been submitted to admin for approval.');
       setForm({ leaveTypeId: '', startDate: '', endDate: '', durationType: 'FULL_DAY', reason: '' });
+      refetchBalance();
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.response?.data?.message || 'Failed to submit leave request' });
+      showAlert.error('Submission Failed', err.response?.data?.message || 'Could not submit leave request.');
     } finally {
       setLoading(false);
     }
@@ -102,50 +103,14 @@ export default function LeaveApplyPage() {
               className="form-select"
               value={form.leaveTypeId}
               onChange={e => setForm(f => ({ ...f, leaveTypeId: e.target.value }))}
+              required
+              id="leave-type-select"
             >
-              <option value="">Select leave type</option>
+              <option value="">Select Leave Type</option>
               {leaveTypes?.map(lt => (
-                <option key={lt.id} value={lt.id}>{lt.name}</option>
+                <option key={lt.id} value={lt.id}>{lt.name} ({lt.code})</option>
               ))}
             </select>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Duration Type</label>
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
-              {['FULL_DAY', 'HALF_DAY'].map(dt => (
-                <label
-                  key={dt}
-                  style={{
-                    flex: 1,
-                    padding: '0.65rem',
-                    borderRadius: 'var(--r-sm)',
-                    border: `2px solid ${form.durationType === dt ? 'var(--primary)' : 'var(--border)'}`,
-                    background: form.durationType === dt ? 'rgba(13,148,136,0.12)' : 'var(--bg-input)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    color: form.durationType === dt ? 'var(--primary-light)' : 'var(--text-2)',
-                    transition: 'all 0.2s',
-                    userSelect: 'none',
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="durationType"
-                    value={dt}
-                    checked={form.durationType === dt}
-                    onChange={() => setForm(f => ({ ...f, durationType: dt as any }))}
-                    style={{ display: 'none' }}
-                  />
-                  {dt === 'FULL_DAY' ? '☀ Full Day' : '🌤 Half Day'}
-                </label>
-              ))}
-            </div>
           </div>
 
           <div className="form-grid">
@@ -156,7 +121,8 @@ export default function LeaveApplyPage() {
                 type="date"
                 value={form.startDate}
                 onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))}
-                min={new Date().toISOString().split('T')[0]}
+                required
+                id="leave-start-date"
               />
             </div>
             <div className="form-group">
@@ -166,44 +132,50 @@ export default function LeaveApplyPage() {
                 type="date"
                 value={form.endDate}
                 onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))}
-                min={form.startDate || new Date().toISOString().split('T')[0]}
+                required
+                id="leave-end-date"
               />
             </div>
           </div>
 
-          {form.startDate && form.endDate && (
-            <div style={{ padding: '0.65rem 0.9rem', background: 'rgba(13,148,136,0.08)', borderRadius: 'var(--r-sm)', border: '1px solid var(--primary-border)', fontSize: '0.85rem', color: 'var(--primary-light)', fontWeight: 600 }}>
-              Duration: {calcDuration()} day{calcDuration() !== 1 ? 's' : ''}
+          <div className="form-group">
+            <label className="form-label">Duration Type</label>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button
+                type="button"
+                className={`btn btn-sm ${form.durationType === 'FULL_DAY' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setForm(f => ({ ...f, durationType: 'FULL_DAY' }))}
+              >
+                Full Day ({calcDuration()} day{calcDuration() !== 1 ? 's' : ''})
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${form.durationType === 'HALF_DAY' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setForm(f => ({ ...f, durationType: 'HALF_DAY' }))}
+              >
+                Half Day (0.5 days)
+              </button>
             </div>
-          )}
+          </div>
 
           <div className="form-group">
             <label className="form-label">Reason *</label>
             <textarea
               className="form-textarea"
-              placeholder="Please provide the reason for your leave request..."
+              placeholder="Please provide a clear reason for your leave..."
               value={form.reason}
               onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+              required
               rows={3}
+              id="leave-reason-input"
             />
           </div>
 
-          {msg && (
-            <div style={{
-              padding: '0.75rem 1rem', borderRadius: 'var(--r-sm)', fontSize: '0.875rem', fontWeight: 600,
-              background: msg.type === 'success' ? 'rgba(16,185,129,0.15)' : 'rgba(244,63,94,0.15)',
-              color: msg.type === 'success' ? 'var(--emerald)' : 'var(--rose)',
-              border: `1px solid ${msg.type === 'success' ? 'rgba(16,185,129,0.30)' : 'rgba(244,63,94,0.30)'}`,
-            }}>
-              {msg.text}
-            </div>
-          )}
-
           <button
-            id="leave-submit-btn"
             type="submit"
             className="btn btn-primary btn-full"
             disabled={loading}
+            id="leave-submit-btn"
           >
             {loading ? 'Submitting...' : 'Submit Leave Request'}
           </button>

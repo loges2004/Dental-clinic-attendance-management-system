@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { branchService } from '../../services/branchService';
 import { Building2, MapPin, Edit2 } from 'lucide-react';
+import { showAlert } from '../../utils/alerts';
 
 export default function BranchesPage() {
   const { data: branches, isLoading, refetch } = useQuery({
@@ -12,7 +13,6 @@ export default function BranchesPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<any>(null);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const startEdit = (b: any) => {
     setEditingId(b.id);
@@ -20,14 +20,14 @@ export default function BranchesPage() {
   };
 
   const handleSave = async () => {
-    setSaving(true); setMsg(null);
+    setSaving(true);
     try {
       await branchService.updateBranch(editingId!, editForm);
-      setMsg({ type: 'success', text: '✓ Branch settings updated!' });
+      showAlert.success('Branch Updated!', `${editForm.name} configuration saved successfully.`);
       setEditingId(null);
       refetch();
     } catch (err: any) {
-      setMsg({ type: 'error', text: err.response?.data?.message || 'Update failed' });
+      showAlert.error('Update Failed', err.response?.data?.message || 'Could not save branch configuration.');
     } finally {
       setSaving(false);
     }
@@ -39,12 +39,6 @@ export default function BranchesPage() {
         <h1 style={{ fontSize: '1.4rem', fontWeight: 800 }}>Branch Management</h1>
         <p style={{ color: 'var(--text-2)', fontSize: '0.875rem' }}>Configure geofence coordinates and GPS radius for each clinic branch</p>
       </div>
-
-      {msg && (
-        <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--r-sm)', fontSize: '0.875rem', fontWeight: 600, background: msg.type === 'success' ? 'rgba(16,185,129,0.15)' : 'rgba(244,63,94,0.15)', color: msg.type === 'success' ? 'var(--emerald)' : 'var(--rose)', border: `1px solid ${msg.type === 'success' ? 'rgba(16,185,129,0.30)' : 'rgba(244,63,94,0.30)'}` }}>
-          {msg.text}
-        </div>
-      )}
 
       {isLoading ? (
         <div className="loading-center"><div className="spinner" /></div>

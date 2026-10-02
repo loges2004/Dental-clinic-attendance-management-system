@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Activity, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
+import { showAlert } from '../../utils/alerts';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -12,12 +13,20 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !password) { setError('Username and password are required'); return; }
-    setLoading(true); setError('');
+    if (!username.trim() || !password) {
+      setError('Username and password are required');
+      showAlert.warning('Missing Credentials', 'Please enter your username and password.');
+      return;
+    }
+    setLoading(true);
+    setError('');
     try {
-      await login(username, password);
+      await login(username.trim(), password);
+      showAlert.toast('Welcome back! 👋', 'success');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Invalid credentials. Please try again.');
+      const msg = err.response?.data?.message || 'Invalid credentials. Please verify username & password.';
+      setError(msg);
+      showAlert.error('Login Failed', msg);
     } finally {
       setLoading(false);
     }
@@ -97,14 +106,6 @@ export default function LoginPage() {
             ) : 'Sign In'}
           </button>
         </form>
-
-        <div style={{ marginTop:'1.5rem', textAlign:'center', color:'var(--text-3)', fontSize:'0.75rem' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', justifyContent:'center' }}>
-            <Activity size={14} />
-            GPS-Verified Attendance System
-          </div>
-          <div style={{ marginTop:'0.25rem' }}>Saibaba Colony &amp; Kannappa Nagar</div>
-        </div>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { attendanceService } from '../../services/attendanceService';
 import { Trash2, AlertTriangle, FileText, Table } from 'lucide-react';
+import { showAlert } from '../../utils/alerts';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
@@ -12,7 +13,6 @@ export default function ArchivePage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const [deleting, setDeleting] = useState(false);
-  const [deleteResult, setDeleteResult] = useState<string | null>(null);
 
   const { data: summary, isLoading, refetch } = useQuery({
     queryKey: ['archive-summary', year, month],
@@ -24,12 +24,12 @@ export default function ArchivePage() {
     setDeleting(true);
     try {
       const result = await attendanceService.deleteMonthlyRecords(year, month);
-      setDeleteResult(`✓ ${result.deletedRecordsCount} records permanently deleted for ${MONTHS[month-1]} ${year}`);
+      showAlert.success('Records Deleted!', `${result.deletedRecordsCount} records permanently deleted for ${MONTHS[month-1]} ${year}`);
       setShowDeleteModal(false);
       setDeleteConfirm('');
       refetch();
     } catch (err: any) {
-      setDeleteResult(`Error: ${err.response?.data?.message || 'Delete failed'}`);
+      showAlert.error('Delete Failed', err.response?.data?.message || 'Could not purge records.');
     } finally {
       setDeleting(false);
     }
@@ -100,83 +100,82 @@ export default function ArchivePage() {
         </div>
       )}
 
-      {/* Export Buttons */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <button
-          className="btn btn-primary btn-full"
-          onClick={() => attendanceService.downloadPdf(year, month)}
-          id="download-pdf-btn"
-        >
-          <FileText size={18} /> Download PDF Report — {MONTHS[month-1]} {year}
-        </button>
-        <button
-          className="btn btn-ghost btn-full"
-          onClick={() => attendanceService.downloadExcel(year, month)}
-          id="download-excel-btn"
-        >
-          <Table size={18} /> Download Excel / CSV — {MONTHS[month-1]} {year}
-        </button>
+      {/* Export Section */}
+      <div className="glass-card p-5">
+        <h3 style={{ fontWeight: 700, marginBottom: '0.75rem', fontSize: '1rem' }}>Export Reports</h3>
+        <p style={{ color: 'var(--text-2)', fontSize: '0.875rem', marginBottom: '1rem' }}>
+          Download attendance records for {MONTHS[month-1]} {year} before purging.
+        </p>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-primary"
+            onClick={() => attendanceService.downloadExcel(year, month)}
+            id="export-excel-btn"
+          >
+            <Table size={16} /> Export Excel (.xlsx)
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => attendanceService.downloadPdf(year, month)}
+            id="export-pdf-btn"
+          >
+            <FileText size={16} /> Export PDF (.pdf)
+          </button>
+        </div>
       </div>
 
-      {deleteResult && (
-        <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--r-sm)', fontSize: '0.875rem', fontWeight: 600, background: deleteResult.startsWith('✓') ? 'rgba(16,185,129,0.15)' : 'rgba(244,63,94,0.15)', color: deleteResult.startsWith('✓') ? 'var(--emerald)' : 'var(--rose)', border: `1px solid ${deleteResult.startsWith('✓') ? 'rgba(16,185,129,0.30)' : 'rgba(244,63,94,0.30)'}` }}>
-          {deleteResult}
-        </div>
-      )}
-
-      {/* Danger Zone */}
-      <div className="glass-card p-5" style={{ borderColor: 'rgba(244,63,94,0.25)' }}>
+      {/* Danger Zone: Purge Records */}
+      <div className="glass-card p-5" style={{ border: '1px solid rgba(244,63,94,0.30)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' }}>
-          <AlertTriangle size={18} color="var(--rose)" />
-          <h3 style={{ fontWeight: 700, color: 'var(--rose)', fontSize: '0.95rem' }}>Danger Zone</h3>
+          <AlertTriangle size={20} color="var(--rose)" />
+          <h3 style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--rose)' }}>Purge Monthly Records</h3>
         </div>
-        <p style={{ fontSize: '0.82rem', color: 'var(--text-2)', marginBottom: '1rem' }}>
-          Permanently delete all attendance records for <strong>{MONTHS[month-1]} {year}</strong>. 
-          This action cannot be undone. Download PDF &amp; Excel reports first.
+        <p style={{ color: 'var(--text-2)', fontSize: '0.875rem', marginBottom: '1rem' }}>
+          Permanently delete attendance logs for <strong>{MONTHS[month-1]} {year}</strong>. This action is irreversible. Ensure you have downloaded the backup export first.
         </p>
         <button
-          className="btn btn-danger btn-full"
-          onClick={() => { setShowDeleteModal(true); setDeleteConfirm(''); }}
-          id="delete-archive-btn"
+          className="btn btn-danger"
+          onClick={() => setShowDeleteModal(true)}
+          disabled={!summary || summary.totalAttendanceRecords === 0}
+          id="purge-records-btn"
         >
-          <Trash2 size={16} /> Delete {MONTHS[month-1]} {year} Records
+          <Trash2 size={16} /> Purge {MONTHS[month-1]} {year} Records
         </button>
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* Confirmation Modal */}
       {showDeleteModal && (
         <div className="modal-overlay">
           <div className="modal">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-              <AlertTriangle size={24} color="var(--rose)" />
-              <h2 className="modal-title" style={{ margin: 0 }}>Confirm Permanent Deletion</h2>
-            </div>
+            <div className="modal-title" style={{ color: 'var(--rose)' }}>⚠️ Permanent Deletion Warning</div>
             <div className="modal-body">
-              This will <strong>permanently delete</strong> all attendance records for{' '}
-              <strong>{MONTHS[month-1]} {year}</strong>. Make sure you have downloaded and safely stored 
-              the report before continuing.
-              <br /><br />
-              Type <code style={{ background: 'rgba(244,63,94,0.15)', padding: '0.1rem 0.4rem', borderRadius: '4px', color: 'var(--rose)' }}>DELETE</code> to confirm:
+              <p style={{ marginBottom: '1rem' }}>
+                You are about to permanently delete <strong>{summary?.totalAttendanceRecords}</strong> attendance records for <strong>{MONTHS[month-1]} {year}</strong>.
+              </p>
+              <p style={{ marginBottom: '1rem', color: 'var(--rose)', fontWeight: 600 }}>
+                This data cannot be recovered.
+              </p>
+              <p style={{ marginBottom: '0.5rem', fontSize: '0.85rem' }}>
+                Type <strong>DELETE</strong> to confirm:
+              </p>
+              <input
+                className="form-input"
+                value={deleteConfirm}
+                onChange={e => setDeleteConfirm(e.target.value)}
+                placeholder="Type DELETE"
+                style={{ marginBottom: '1rem' }}
+                id="delete-confirm-input"
+              />
             </div>
-            <input
-              className="form-input"
-              style={{ marginBottom: '1rem' }}
-              placeholder="Type DELETE to confirm"
-              value={deleteConfirm}
-              onChange={e => setDeleteConfirm(e.target.value)}
-              id="delete-confirm-input"
-            />
             <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button className="btn btn-ghost btn-full" onClick={() => setShowDeleteModal(false)}>
-                Cancel
-              </button>
+              <button className="btn btn-ghost btn-full" onClick={() => { setShowDeleteModal(false); setDeleteConfirm(''); }}>Cancel</button>
               <button
                 className="btn btn-danger btn-full"
                 disabled={deleteConfirm !== 'DELETE' || deleting}
                 onClick={handleDelete}
                 id="confirm-delete-btn"
               >
-                {deleting ? 'Deleting...' : 'Delete Permanently'}
+                {deleting ? 'Deleting...' : 'Permanently Delete'}
               </button>
             </div>
           </div>

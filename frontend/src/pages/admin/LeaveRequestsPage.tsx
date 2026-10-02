@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { leaveService } from '../../services/leaveService';
 import { CheckCircle2, XCircle, BookOpen } from 'lucide-react';
+import { showAlert } from '../../utils/alerts';
 
 function formatDate(d?: string) {
   if (!d) return '--';
@@ -20,13 +21,27 @@ export default function LeaveRequestsPage() {
 
   const approveMut = useMutation({
     mutationFn: (id: number) => leaveService.approveLeave(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['leave-requests'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leave-requests'] });
+      showAlert.success('Leave Approved!', 'Leave application has been approved.');
+    },
+    onError: (err: any) => showAlert.error('Approval Failed', err.response?.data?.message || 'Could not approve leave.'),
   });
 
   const rejectMut = useMutation({
     mutationFn: ({ id, reason }: { id: number; reason: string }) => leaveService.rejectLeave(id, reason),
-    onSuccess: () => { setRejectionInput(null); qc.invalidateQueries({ queryKey: ['leave-requests'] }); },
+    onSuccess: () => {
+      setRejectionInput(null);
+      qc.invalidateQueries({ queryKey: ['leave-requests'] });
+      showAlert.success('Leave Rejected', 'Leave request has been marked as rejected.');
+    },
+    onError: (err: any) => showAlert.error('Rejection Failed', err.response?.data?.message || 'Could not reject leave.'),
   });
+
+  const handleApprove = async (id: number, empName: string) => {
+    const ok = await showAlert.confirm(`Approve leave for ${empName}?`, 'This will deduct from employee leave balance.', 'Yes, Approve');
+    if (ok) approveMut.mutate(id);
+  };
 
   const STATUS_TABS = ['PENDING', 'APPROVED', 'REJECTED', 'ALL'];
 
@@ -91,7 +106,7 @@ export default function LeaveRequestsPage() {
                   <button
                     className="btn btn-primary btn-sm"
                     style={{ flex: 1, minWidth: 100 }}
-                    onClick={() => approveMut.mutate(lr.id)}
+                    onClick={() => handleApprove(lr.id, `${lr.employee.firstName} ${lr.employee.lastName}`)}
                     disabled={approveMut.isPending}
                     id={`approve-leave-${lr.id}`}
                   >

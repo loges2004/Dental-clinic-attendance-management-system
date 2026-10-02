@@ -3,10 +3,11 @@ import { useQuery } from '@tanstack/react-query';
 import { attendanceService } from '../../services/attendanceService';
 import { leaveService } from '../../services/leaveService';
 import { useAuth } from '../../context/AuthContext';
+import { showAlert } from '../../utils/alerts';
 import {
-  Clock, CheckCircle2, MapPin,
+  CheckCircle2, MapPin,
   WifiOff, RefreshCw, Navigation,
-  LogIn, LogOut, Hourglass
+  LogIn, LogOut
 } from 'lucide-react';
 
 interface GPSState {
@@ -17,7 +18,6 @@ interface GPSState {
   error?: string;
 }
 
-// Detect if the error is a location/geofence error from backend
 function isOutsideLocationError(msg: string): boolean {
   return /outside|location|distance|geofence|radius/i.test(msg);
 }
@@ -49,48 +49,66 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
 
   const acquireGPS = useCallback(() => {
     if (!navigator.geolocation) {
-      setGps(g => ({ ...g, status: 'error', error: 'GPS not supported on this device' }));
+      setGps({ latitude: null, longitude: null, accuracy: null, status: 'error', error: 'Geolocation is not supported by your browser' });
       return;
     }
-    setGps(g => ({ ...g, status: 'acquiring' }));
+    setGps(g => ({ ...g, status: 'acquiring', error: undefined }));
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      pos => {
         setGps({
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
+          accuracy: Math.round(pos.coords.accuracy),
           status: 'ready',
         });
       },
-      (err) => {
-        if (err.code === err.PERMISSION_DENIED) {
-          setGps(g => ({ ...g, status: 'denied', error: 'Location permission denied. Please enable GPS in browser settings.' }));
-        } else {
-          setGps(g => ({ ...g, status: 'error', error: 'Could not get your location. Please retry.' }));
-        }
+      err => {
+        const errorMessages: Record<number, string> = {
+          1: 'Location permission was denied. Please allow location access in your browser settings.',
+          2: 'Location information is unavailable. Check GPS/Wi-Fi.',
+          3: 'Location request timed out. Please try again.',
+        };
+        setGps({
+          latitude: null,
+          longitude: null,
+          accuracy: null,
+          status: err.code === 1 ? 'denied' : 'error',
+          error: errorMessages[err.code] || 'Could not acquire location',
+        });
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }, []);
 
-  useEffect(() => { acquireGPS(); }, [acquireGPS]);
+  useEffect(() => {
+    acquireGPS();
+  }, [acquireGPS]);
 
   const handleCheckIn = async () => {
-    if (gps.status !== 'ready' || !gps.latitude || !gps.longitude || !gps.accuracy) {
+    if (!gps.latitude || !gps.longitude) {
       acquireGPS();
+      showAlert.warning('Acquiring Location', 'Waiting for GPS signal. Please try again in a few moments.');
       return;
     }
-    setActionLoading(true); setActionMsg(null);
+    setActionLoading(true);
+    setActionMsg(null);
     try {
-      await attendanceService.checkIn(gps.latitude, gps.longitude, gps.accuracy);
-      setActionMsg({ type: 'success', text: '\u2713 Checked in successfully! You are inside the clinic.' });
+      await attendanceService.checkIn(
+        gps.latitude,
+        gps.longitude,
+        gps.accuracy || 10
+      );
+      showAlert.success('Check-in Successful! 🎉', 'You have marked your attendance at the clinic.');
+      setActionMsg({ type: 'success', text: 'Checked in successfully!' });
       refetch();
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message || 'Check-in failed';
       if (isOutsideLocationError(msg)) {
         setActionMsg({ type: 'location', text: msg });
+        showAlert.error('Outside Clinic Location 📍', msg);
       } else {
         setActionMsg({ type: 'error', text: msg });
+        showAlert.error('Check-in Failed', msg);
       }
     } finally {
       setActionLoading(false);
@@ -98,21 +116,37 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
   };
 
   const handleCheckOut = async () => {
-    if (gps.status !== 'ready' || !gps.latitude || !gps.longitude || !gps.accuracy) {
+    if (!gps.latitude || !gps.longitude) {
       acquireGPS();
+      showAlert.warning('Acquiring Location', 'Waiting for GPS signal. Please try again in a few moments.');
       return;
     }
-    setActionLoading(true); setActionMsg(null);
+    const confirmed = await showAlert.confirm(
+      'Confirm Check-out',
+      'Are you sure you want to end your shift and check out for today?',
+      'Yes, Check Out'
+    );
+    if (!confirmed) return;
+
+    setActionLoading(true);
+    setActionMsg(null);
     try {
-      await attendanceService.checkOut(gps.latitude, gps.longitude, gps.accuracy);
-      setActionMsg({ type: 'success', text: '\u2713 Checked out successfully! Have a great day.' });
+      await attendanceService.checkOut(
+        gps.latitude,
+        gps.longitude,
+        gps.accuracy || 10
+      );
+      showAlert.success('Check-out Successful! 👋', 'Your shift has ended and attendance is finalized.');
+      setActionMsg({ type: 'success', text: 'Checked out successfully!' });
       refetch();
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message || 'Check-out failed';
       if (isOutsideLocationError(msg)) {
         setActionMsg({ type: 'location', text: msg });
+        showAlert.error('Outside Clinic Location 📍', msg);
       } else {
         setActionMsg({ type: 'error', text: msg });
+        showAlert.error('Check-out Failed', msg);
       }
     } finally {
       setActionLoading(false);
@@ -150,7 +184,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
           <div>
             <h2 style={{ fontSize: '1.3rem', fontWeight: 800 }}>{greeting}!</h2>
             <p style={{ color: 'var(--text-2)', fontSize: '0.9rem' }}>
-              {user?.firstName} \u00b7 {user?.branchName}
+              {user?.firstName} · {user?.branchName}
             </p>
           </div>
           <div style={{ textAlign: 'right' }}>
@@ -158,229 +192,245 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
               {now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
             </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--text-3)' }}>
-              {now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
             </div>
           </div>
         </div>
       </div>
 
-      {/* GPS Status pill */}
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        {gps.status === 'idle' && (
-          <button className="gps-status acquiring" style={{ cursor: 'pointer', border: 'none' }} onClick={acquireGPS}>
-            <Navigation size={14} /> Tap to enable GPS location
-          </button>
-        )}
-        {gps.status === 'acquiring' && (
-          <div className="gps-status acquiring">
-            <div className="gps-dot" /> Acquiring GPS signal...
-          </div>
-        )}
-        {gps.status === 'ready' && (
-          <div className="gps-status inside">
-            <div className="gps-dot" /> GPS Ready \u00b7 Accuracy \u00b1{Math.round(gps.accuracy!)}m
-          </div>
-        )}
-        {(gps.status === 'error' || gps.status === 'denied') && (
-          <button className="gps-status outside" style={{ cursor: 'pointer', border: '1px solid rgba(244,63,94,0.30)' }} onClick={acquireGPS}>
-            <WifiOff size={14} /> {gps.error || 'GPS error — Retry'}
-          </button>
-        )}
-      </div>
-
-      {/* Main Action Card */}
-      <div className="glass-card" style={{ overflow: 'hidden' }}>
-        <div className="checkin-hero">
-          {/* --- NOT CHECKED IN --- */}
-          {!isCheckedIn && (
-            <>
-              <button
-                className="checkin-btn"
-                onClick={handleCheckIn}
-                disabled={actionLoading}
-                id="checkin-button"
-              >
-                {actionLoading
-                  ? <RefreshCw size={36} style={{ animation: 'spin 1s linear infinite' }} />
-                  : <LogIn size={40} />}
-                <span>{actionLoading ? 'Processing\u2026' : 'CHECK IN'}</span>
-              </button>
-              <p style={{ fontSize: '0.82rem', color: 'var(--text-3)', textAlign: 'center' }}>
-                {gps.status !== 'ready'
-                  ? 'Enable GPS first, then tap to check in'
-                  : 'GPS ready \u00b7 Tap to record attendance'}
-              </p>
-            </>
-          )}
-
-          {/* --- CHECKED IN, NOT CHECKED OUT --- */}
-          {isCheckedIn && !isCheckedOut && (
-            <>
-              <div style={{ textAlign: 'center', marginBottom: '0.75rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', color: 'var(--emerald)', fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.35rem' }}>
-                  <CheckCircle2 size={18} /> Inside Clinic \u00b7 Checked in at {formatTime(att?.checkInAt)}
-                </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-3)', marginBottom: '0.35rem' }}>
-                  <Hourglass size={12} style={{ display: 'inline', marginRight: 4 }} />
-                  Duration: {calcDuration(att?.checkInAt)}
-                </div>
-                {att?.isLate && <span className="badge badge-amber">Late Arrival</span>}
-              </div>
-              <button
-                className="checkin-btn checkout"
-                onClick={handleCheckOut}
-                disabled={actionLoading}
-                id="checkout-button"
-              >
-                {actionLoading
-                  ? <RefreshCw size={36} style={{ animation: 'spin 1s linear infinite' }} />
-                  : <LogOut size={40} />}
-                <span>{actionLoading ? 'Processing\u2026' : 'CHECK OUT'}</span>
-              </button>
-              <p style={{ fontSize: '0.82rem', color: 'var(--text-3)', textAlign: 'center' }}>
-                {gps.status !== 'ready' ? 'Enable GPS first to check out' : 'Tap to record check-out time'}
-              </p>
-            </>
-          )}
-
-          {/* --- FULLY DONE --- */}
-          {isCheckedIn && isCheckedOut && (
-            <div style={{ textAlign: 'center', padding: '1rem 0' }}>
-              <CheckCircle2 size={56} color="var(--emerald)" style={{ margin: '0 auto 1rem' }} />
-              <h3 style={{ fontWeight: 800, fontSize: '1.2rem', marginBottom: '0.5rem' }}>All Done for Today!</h3>
-              <p style={{ color: 'var(--text-2)', fontSize: '0.9rem' }}>
-                {formatTime(att?.checkInAt)} \u2192 {formatTime(att?.checkOutAt)}
-                &nbsp;\u00b7&nbsp;
-                <strong>{calcDuration(att?.checkInAt, att?.checkOutAt)}</strong> total
-              </p>
-              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '0.75rem', flexWrap: 'wrap' }}>
-                <span className={`badge ${att?.isLate ? 'badge-amber' : 'badge-emerald'}`}>
-                  {att?.isLate ? 'Late' : 'On Time'}
-                </span>
-                {att?.isEarlyCheckout && <span className="badge badge-rose">Early Checkout</span>}
-                <span className="badge badge-cyan">{att?.status}</span>
-              </div>
+      {/* OUT OF LOCATION ERROR CARD */}
+      {actionMsg?.type === 'location' && (
+        <div className="glass-card" style={{
+          background: 'rgba(245, 158, 11, 0.12)',
+          border: '1.5px solid rgba(245, 158, 11, 0.45)',
+          padding: '1.1rem 1.25rem',
+          borderRadius: 'var(--r-md)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+            <div style={{
+              width: 38, height: 38, borderRadius: '50%',
+              background: 'rgba(245, 158, 11, 0.25)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <MapPin size={20} color="var(--amber)" />
             </div>
-          )}
-        </div>
-
-        {/* Action Message */}
-        {actionMsg && (
-          <div style={{ margin: '0 1.25rem 1.25rem' }}>
-            {actionMsg.type === 'location' ? (
-              /* ── OUTSIDE LOCATION ERROR ── */
-              <div style={{
-                padding: '1rem',
-                borderRadius: 'var(--r-sm)',
-                background: 'rgba(245,158,11,0.12)',
-                border: '1px solid rgba(245,158,11,0.35)',
-                display: 'flex',
-                gap: '0.75rem',
-                alignItems: 'flex-start',
-              }}>
-                <MapPin size={22} color="var(--amber)" style={{ flexShrink: 0, marginTop: 2 }} />
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--amber)', marginBottom: '0.3rem' }}>
-                    \u26a0\ufe0f You are outside the clinic location
-                  </div>
-                  <div style={{ fontSize: '0.82rem', color: 'var(--text-2)', lineHeight: 1.5 }}>
-                    {actionMsg.text}
-                  </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-3)', marginTop: '0.4rem' }}>
-                    Please move closer to your clinic and try again.
-                  </div>
-                </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#fbbf24', marginBottom: '0.25rem' }}>
+                Outside Clinic Location
               </div>
-            ) : (
-              /* ── SUCCESS / GENERIC ERROR ── */
-              <div style={{
-                padding: '0.75rem 1rem',
-                borderRadius: 'var(--r-sm)',
-                fontSize: '0.875rem',
-                fontWeight: 600,
-                background: actionMsg.type === 'success' ? 'rgba(16,185,129,0.15)' : 'rgba(244,63,94,0.15)',
-                color: actionMsg.type === 'success' ? 'var(--emerald)' : 'var(--rose)',
-                border: `1px solid ${actionMsg.type === 'success' ? 'rgba(16,185,129,0.30)' : 'rgba(244,63,94,0.30)'}`,
-              }}>
+              <div style={{ fontSize: '0.85rem', color: '#fef3c7', lineHeight: 1.45 }}>
                 {actionMsg.text}
               </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Today's Details — shown after check-in */}
-      {att && (
-        <div className="glass-card p-5">
-          <h3 style={{ fontWeight: 700, marginBottom: '1rem', fontSize: '1rem', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Clock size={16} /> Today's Attendance Details
-          </h3>
-          <div className="attend-info-row">
-            <span className="attend-info-label">Branch</span>
-            <span className="attend-info-value">{att.branch?.name}</span>
-          </div>
-          <div className="attend-info-row">
-            <span className="attend-info-label">Shift</span>
-            <span className="attend-info-value">{att.shift?.name || 'Default Shift'}</span>
-          </div>
-          <div className="attend-info-row">
-            <span className="attend-info-label">Check In</span>
-            <span className="attend-info-value">{formatTime(att.checkInAt)}</span>
-          </div>
-          {att.checkInDistance != null && (
-            <div className="attend-info-row">
-              <span className="attend-info-label">Distance from Branch</span>
-              <span className="attend-info-value" style={{ color: 'var(--emerald)' }}>{att.checkInDistance}m \u2713 Inside</span>
-            </div>
-          )}
-          {att.checkOutAt ? (
-            <>
-              <div className="attend-info-row">
-                <span className="attend-info-label">Check Out</span>
-                <span className="attend-info-value">{formatTime(att.checkOutAt)}</span>
+              <div style={{ marginTop: '0.6rem', fontSize: '0.78rem', color: 'rgba(254, 243, 199, 0.75)' }}>
+                Please ensure you are inside <strong>{user?.branchName}</strong> premises and try again.
               </div>
-              <div className="attend-info-row">
-                <span className="attend-info-label">Total Duration</span>
-                <span className="attend-info-value" style={{ color: 'var(--primary-light)', fontWeight: 700 }}>
-                  {calcDuration(att.checkInAt, att.checkOutAt)}
-                </span>
-              </div>
-            </>
-          ) : (
-            <div className="attend-info-row">
-              <span className="attend-info-label">Duration (live)</span>
-              <span className="attend-info-value" style={{ color: 'var(--cyan)', fontWeight: 700 }}>
-                {calcDuration(att.checkInAt)} \u25cf
-              </span>
             </div>
-          )}
-          <div className="attend-info-row">
-            <span className="attend-info-label">Status</span>
-            <span className={`badge ${att.status === 'PRESENT' || att.status === 'ON_LEAVE' ? 'badge-emerald' : att.status === 'LATE' ? 'badge-amber' : 'badge-rose'}`}>
-              {att.status}
-            </span>
           </div>
-          {att.isLate && (
-            <div className="attend-info-row">
-              <span className="attend-info-label">Punctuality</span>
-              <span className="badge badge-amber">Late Arrival</span>
-            </div>
-          )}
-          {att.isEarlyCheckout && (
-            <div className="attend-info-row">
-              <span className="attend-info-label">Checkout</span>
-              <span className="badge badge-rose">Early Checkout</span>
-            </div>
-          )}
         </div>
       )}
 
-      {/* Leave Balance */}
+      {/* OTHER ACTION MESSAGE */}
+      {actionMsg && actionMsg.type !== 'location' && (
+        <div style={{
+          padding: '0.75rem 1rem',
+          borderRadius: 'var(--r-sm)',
+          fontSize: '0.875rem',
+          fontWeight: 600,
+          background: actionMsg.type === 'success' ? 'rgba(16,185,129,0.15)' : 'rgba(244,63,94,0.15)',
+          color: actionMsg.type === 'success' ? 'var(--emerald)' : 'var(--rose)',
+          border: `1px solid ${actionMsg.type === 'success' ? 'rgba(16,185,129,0.30)' : 'rgba(244,63,94,0.30)'}`,
+        }}>
+          {actionMsg.text}
+        </div>
+      )}
+
+      {/* GPS Status Card */}
+      <div className="glass-card p-4" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: '50%',
+            background: gps.status === 'ready' ? 'rgba(16,185,129,0.15)' : gps.status === 'acquiring' ? 'rgba(6,182,212,0.15)' : 'rgba(244,63,94,0.15)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }}>
+            {gps.status === 'ready' ? <Navigation size={16} color="var(--emerald)" /> :
+             gps.status === 'acquiring' ? <RefreshCw size={16} color="var(--cyan)" className="spinner" /> :
+             <WifiOff size={16} color="var(--rose)" />}
+          </div>
+          <div>
+            <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>
+              {gps.status === 'ready' ? 'GPS Signal Ready' :
+               gps.status === 'acquiring' ? 'Locating device...' :
+               gps.status === 'denied' ? 'Location Permission Denied' : 'Location Error'}
+            </div>
+            {gps.accuracy && (
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>
+                Accuracy: ±{gps.accuracy}m
+              </div>
+            )}
+          </div>
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={acquireGPS} disabled={gps.status === 'acquiring'}>
+          <RefreshCw size={13} />
+        </button>
+      </div>
+
+      {/* DYNAMIC ACTION CARD: CHECK IN vs CHECK OUT vs COMPLETED */}
+      <div className="glass-card p-6" style={{ textAlign: 'center' }}>
+        {!isCheckedIn ? (
+          /* STEP 1: NOT CHECKED IN YET -> SHOW CHECK IN BUTTON */
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1.25rem' }}>
+              <button
+                className="checkin-btn checkin-btn-in"
+                onClick={handleCheckIn}
+                disabled={actionLoading || gps.status !== 'ready'}
+                id="checkin-action-btn"
+                style={{
+                  width: 170, height: 170, borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #0d9488 0%, #06b6d4 100%)',
+                  border: '4px solid rgba(255,255,255,0.2)',
+                  color: '#ffffff',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  cursor: (actionLoading || gps.status !== 'ready') ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 8px 32px rgba(13,148,136,0.45)',
+                  transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+                  margin: '0 auto',
+                }}
+              >
+                {actionLoading ? (
+                  <div className="spinner" style={{ width: 36, height: 36, borderWidth: 3 }} />
+                ) : (
+                  <>
+                    <LogIn size={36} style={{ marginBottom: 6 }} />
+                    <span style={{ fontSize: '1.1rem', fontWeight: 800, letterSpacing: '0.04em' }}>CHECK IN</span>
+                    <span style={{ fontSize: '0.72rem', opacity: 0.85, marginTop: 2 }}>Start Shift</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <p style={{ color: 'var(--text-3)', fontSize: '0.82rem' }}>
+              {gps.status === 'ready' ? 'Tap button above when inside clinic' : 'Enable GPS to enable Check-In'}
+            </p>
+          </div>
+        ) : !isCheckedOut ? (
+          /* STEP 2: CHECKED IN BUT NOT CHECKED OUT -> SHOW CHECK OUT BUTTON */
+          <div>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+              background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)',
+              borderRadius: 'var(--r-full)', padding: '0.4rem 1rem', marginBottom: '1.2rem',
+              color: 'var(--emerald)', fontSize: '0.85rem', fontWeight: 700
+            }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--emerald)', animation: 'pulse 1.5s infinite' }} />
+              ON DUTY · Checked in at {formatTime(att?.checkInAt)}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1.25rem' }}>
+              <button
+                className="checkin-btn checkin-btn-out"
+                onClick={handleCheckOut}
+                disabled={actionLoading || gps.status !== 'ready'}
+                id="checkout-action-btn"
+                style={{
+                  width: 170, height: 170, borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #e11d48 0%, #f43f5e 100%)',
+                  border: '4px solid rgba(255,255,255,0.2)',
+                  color: '#ffffff',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  cursor: (actionLoading || gps.status !== 'ready') ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 8px 32px rgba(225,29,72,0.45)',
+                  transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+                  margin: '0 auto',
+                }}
+              >
+                {actionLoading ? (
+                  <div className="spinner" style={{ width: 36, height: 36, borderWidth: 3 }} />
+                ) : (
+                  <>
+                    <LogOut size={36} style={{ marginBottom: 6 }} />
+                    <span style={{ fontSize: '1.1rem', fontWeight: 800, letterSpacing: '0.04em' }}>CHECK OUT</span>
+                    <span style={{ fontSize: '0.72rem', opacity: 0.85, marginTop: 2 }}>End Shift</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '1.5rem', color: 'var(--text-2)', fontSize: '0.85rem' }}>
+              <div>In: <strong style={{ color: 'var(--text-1)' }}>{formatTime(att?.checkInAt)}</strong></div>
+              <div>Duration: <strong style={{ color: 'var(--primary-light)' }}>{calcDuration(att?.checkInAt)}</strong></div>
+            </div>
+          </div>
+        ) : (
+          /* STEP 3: BOTH CHECKED IN AND CHECKED OUT -> ATTENDANCE COMPLETE */
+          <div style={{ padding: '1rem 0' }}>
+            <div style={{
+              width: 72, height: 72, borderRadius: '50%',
+              background: 'rgba(16,185,129,0.15)', border: '2px solid rgba(16,185,129,0.4)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 1rem', color: 'var(--emerald)'
+            }}>
+              <CheckCircle2 size={40} />
+            </div>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--emerald)', marginBottom: '0.35rem' }}>
+              Shift Completed for Today!
+            </h3>
+            <p style={{ color: 'var(--text-2)', fontSize: '0.85rem', marginBottom: '1.2rem' }}>
+              Your attendance has been recorded successfully.
+            </p>
+
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem',
+              background: 'var(--bg-surface)', padding: '1rem', borderRadius: 'var(--r-md)',
+              border: '1px solid var(--border)'
+            }}>
+              <div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>CHECK IN</div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--emerald)', marginTop: 2 }}>{formatTime(att?.checkInAt)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>CHECK OUT</div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--rose)', marginTop: 2 }}>{formatTime(att?.checkOutAt)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>TOTAL TIME</div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--cyan)', marginTop: 2 }}>{calcDuration(att?.checkInAt, att?.checkOutAt)}</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* TODAY'S SUMMARY DETAILS */}
+      {att && (
+        <div className="glass-card p-5">
+          <h3 style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '0.85rem' }}>Today's Details</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
+            <div style={{ background: 'var(--bg-surface)', padding: '0.75rem', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>Status</div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 700, color: att.status === 'PRESENT' ? 'var(--emerald)' : 'var(--amber)', marginTop: 2 }}>
+                {att.status} {att.isLate ? '(Late)' : ''}
+              </div>
+            </div>
+            <div style={{ background: 'var(--bg-surface)', padding: '0.75rem', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>Branch</div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-1)', marginTop: 2 }}>
+                {att.branch?.name || user?.branchName}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Leave Balance Overview */}
       {leaveBalance && (
         <div className="glass-card p-5">
-          <h3 style={{ fontWeight: 700, marginBottom: '1rem', fontSize: '1rem', color: 'var(--text-2)' }}>
-            Leave Balance \u2014 This Month
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <h3 style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-2)' }}>Monthly Leave Balance</h3>
+            <button className="btn btn-ghost btn-sm" onClick={() => onNavigate('leave-apply')}>
+              Apply Leave →
+            </button>
+          </div>
           <div className="leave-balance-grid">
             <div className="leave-balance-item">
               <div className="leave-balance-num" style={{ color: 'var(--cyan)' }}>{leaveBalance.totalEntitlement}</div>
@@ -399,15 +449,9 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
               <div className="leave-balance-label">Available</div>
             </div>
           </div>
-          <button
-            className="btn btn-ghost btn-full btn-sm"
-            style={{ marginTop: '1rem' }}
-            onClick={() => onNavigate('leave-apply')}
-          >
-            Apply for Leave
-          </button>
         </div>
       )}
+
     </div>
   );
 }

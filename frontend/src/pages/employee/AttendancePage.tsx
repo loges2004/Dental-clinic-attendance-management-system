@@ -4,8 +4,8 @@ import { attendanceService } from '../../services/attendanceService';
 import { leaveService } from '../../services/leaveService';
 import { useAuth } from '../../context/AuthContext';
 import {
-  Clock, CheckCircle2, XCircle, MapPin,
-  WifiOff, RefreshCw, Navigation, AlertTriangle,
+  Clock, CheckCircle2, MapPin,
+  WifiOff, RefreshCw, Navigation,
   LogIn, LogOut, Hourglass
 } from 'lucide-react';
 
@@ -27,7 +27,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
   const [gps, setGps] = useState<GPSState>({ latitude: null, longitude: null, accuracy: null, status: 'idle' });
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error' | 'location'; text: string } | null>(null);
-  const [tick, setTick] = useState(0);
+  const [, setTick] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Live clock

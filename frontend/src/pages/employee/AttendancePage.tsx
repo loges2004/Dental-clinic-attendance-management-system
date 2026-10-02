@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { showAlert } from '../../utils/alerts';
 import {
   MapPin, WifiOff, RefreshCw, Navigation,
-  LogIn, LogOut, Clock, ClipboardList, History
+  LogIn, LogOut, Clock, ClipboardList, History, X
 } from 'lucide-react';
 
 import RegularizationRequestModal from '../../components/attendance/RegularizationRequestModal';
@@ -29,6 +29,10 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error' | 'location'; text: string } | null>(null);
   const [showRegModal, setShowRegModal] = useState(false);
+  const [showForgotCheckoutModal, setShowForgotCheckoutModal] = useState(false);
+  const [forgotCheckoutTime, setForgotCheckoutTime] = useState('');
+  const [forgotCheckoutReason, setForgotCheckoutReason] = useState('');
+  const [forgotCheckoutLoading, setForgotCheckoutLoading] = useState(false);
   const [, setTick] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const watchIdRef = useRef<number | null>(null);
@@ -180,13 +184,44 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
       const msg = err.response?.data?.message || (err.response?.status === 403 ? 'Access denied. Please sign in again.' : err.message) || 'Check-out failed';
       if (isOutsideLocationError(msg)) {
         setActionMsg({ type: 'location', text: msg });
-        showAlert.error('Location Check 📍', msg);
+        const defaultTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        setForgotCheckoutTime(defaultTime);
+        setShowForgotCheckoutModal(true);
       } else {
         setActionMsg({ type: 'error', text: msg });
         showAlert.error('Check-out Failed', msg);
       }
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleForgotCheckoutSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotCheckoutTime) {
+      showAlert.warning('Missing Time', 'Please enter the time you left the clinic.');
+      return;
+    }
+
+    setForgotCheckoutLoading(true);
+    try {
+      await attendanceService.forgotCheckOut(
+        forgotCheckoutTime,
+        forgotCheckoutReason.trim() || 'Left clinic, remote check-out recorded',
+        gps.latitude || undefined,
+        gps.longitude || undefined,
+        gps.accuracy || undefined
+      );
+      showAlert.success('Session Closed! 👋', `Your departure at ${forgotCheckoutTime} has been saved. Timer stopped.`);
+      setShowForgotCheckoutModal(false);
+      setForgotCheckoutReason('');
+      setActionMsg(null);
+      refetch();
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Could not complete remote check-out';
+      showAlert.error('Check-out Failed', msg);
+    } finally {
+      setForgotCheckoutLoading(false);
     }
   };
 
@@ -282,6 +317,20 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
                 >
                   <RefreshCw size={13} style={{ marginRight: 4 }} /> Refresh GPS
                 </button>
+                {isCurrentlyIn && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-primary"
+                    style={{ background: 'var(--rose)', borderColor: 'var(--rose)', fontWeight: 700 }}
+                    onClick={() => {
+                      const defaultTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                      setForgotCheckoutTime(defaultTime);
+                      setShowForgotCheckoutModal(true);
+                    }}
+                  >
+                    <LogOut size={13} style={{ marginRight: 4 }} /> Forgot Check-Out? Close Session →
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-sm btn-ghost"
@@ -433,6 +482,21 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
             <div style={{ display: 'flex', justifyContent: 'center', gap: '1.5rem', color: 'var(--text-2)', fontSize: '0.85rem' }}>
               <div>Session In: <strong style={{ color: 'var(--text-1)' }}>{formatTime(activeSession?.checkInAt)}</strong></div>
               <div>Current Session: <strong style={{ color: 'var(--cyan)' }}>{getSessionDuration(activeSession?.checkInAt)}</strong></div>
+            </div>
+
+            <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                style={{ color: 'var(--rose)', fontSize: '0.78rem', textDecoration: 'underline' }}
+                onClick={() => {
+                  const defaultTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                  setForgotCheckoutTime(defaultTime);
+                  setShowForgotCheckoutModal(true);
+                }}
+              >
+                Outside clinic already? Tap here to complete Missed Check-Out
+              </button>
             </div>
           </div>
         ) : (
@@ -636,6 +700,86 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
         isOpen={showRegModal}
         onClose={() => setShowRegModal(false)}
       />
+
+      {/* Forgot Check-Out Modal (Outside Clinic) */}
+      {showForgotCheckoutModal && (
+        <div className="modal-overlay" style={{ zIndex: 1200 }} onClick={() => setShowForgotCheckoutModal(false)}>
+          <div className="modal" style={{ maxWidth: 440, width: '94%' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: '50%',
+                  background: 'rgba(244,63,94,0.15)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: 'var(--rose)'
+                }}>
+                  <LogOut size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontWeight: 800, fontSize: '1.1rem' }}>Forgot to Check Out?</h3>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>Record your departure & stop the timer</p>
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowForgotCheckoutModal(false)}><X size={16} /></button>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', padding: '0.85rem', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '0.35rem' }}>
+                <span style={{ color: 'var(--text-3)' }}>Session Started At:</span>
+                <strong style={{ color: 'var(--text-1)' }}>{formatTime(activeSession?.checkInAt || att?.checkInAt)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                <span style={{ color: 'var(--text-3)' }}>Current Status:</span>
+                <span style={{ color: 'var(--amber)', fontWeight: 700 }}>Outside Clinic Premises</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleForgotCheckoutSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div className="form-group">
+                <label className="form-label" style={{ fontWeight: 700 }}>What time did you leave the clinic? *</label>
+                <input
+                  type="time"
+                  className="form-input"
+                  value={forgotCheckoutTime}
+                  onChange={e => setForgotCheckoutTime(e.target.value)}
+                  required
+                  style={{ fontSize: '1.2rem', fontWeight: 700, textAlign: 'center', padding: '0.75rem' }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Note / Reason (Optional)</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Left clinic at shift end, forgot to punch"
+                  value={forgotCheckoutReason}
+                  onChange={e => setForgotCheckoutReason(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ flex: 1 }}
+                  onClick={() => setShowForgotCheckoutModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ flex: 2, background: 'linear-gradient(135deg, var(--rose) 0%, #e11d48 100%)' }}
+                  disabled={forgotCheckoutLoading || !forgotCheckoutTime}
+                >
+                  {forgotCheckoutLoading ? 'Closing Session...' : 'Confirm & Check Out'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );

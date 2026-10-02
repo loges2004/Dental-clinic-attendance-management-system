@@ -34,6 +34,12 @@ public class AttendanceController {
         return ResponseEntity.ok(attendance);
     }
 
+    @PostMapping("/forgot-checkout")
+    public ResponseEntity<Attendance> forgotCheckOut(@Valid @RequestBody ForgotCheckOutRequest request, Authentication authentication) {
+        Attendance attendance = attendanceService.forgotCheckOut(authentication.getName(), request);
+        return ResponseEntity.ok(attendance);
+    }
+
     @GetMapping("/today")
     public ResponseEntity<Attendance> getTodayAttendance(Authentication authentication) {
         Optional<Attendance> attendanceOpt = attendanceService.getTodayAttendance(authentication.getName());

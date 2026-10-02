@@ -12,6 +12,17 @@ export const attendanceService = {
     return res.data;
   },
 
+  async forgotCheckOut(actualCheckOutTime: string, reason?: string, latitude?: number, longitude?: number, accuracy?: number) {
+    const res = await api.post<Attendance>('/attendance/forgot-checkout', {
+      actualCheckOutTime,
+      reason,
+      latitude,
+      longitude,
+      accuracy,
+    });
+    return res.data;
+  },
+
   async getToday(): Promise<Attendance | null> {
     try {
       const res = await api.get<Attendance>('/attendance/today');

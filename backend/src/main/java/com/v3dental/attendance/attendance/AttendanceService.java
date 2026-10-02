@@ -325,6 +325,85 @@ public class AttendanceService {
         return saved;
     }
 
+    @Transactional
+    public Attendance forgotCheckOut(String username, ForgotCheckOutRequest request) {
+        User user = userRepository.findByUsername(username)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+
+        Employee employee = employeeRepository.findByUserId(user.getId())
+            .orElseThrow(() -> new RuntimeException("Employee record not found"));
+
+        LocalDate today = LocalDate.now(CLINIC_ZONE);
+        Attendance attendance = attendanceRepository.findByEmployeeIdAndAttendanceDate(employee.getId(), today)
+            .orElseThrow(() -> new IllegalStateException("No active check-in record found for today"));
+
+        if ("CHECKED_OUT".equalsIgnoreCase(attendance.getCurrentSessionStatus())) {
+            throw new IllegalStateException("Already checked out for the current session.");
+        }
+
+        LocalTime departureTime = request.getActualCheckOutTime();
+        if (departureTime == null) {
+            throw new IllegalArgumentException("Actual checkout departure time is required");
+        }
+
+        OffsetDateTime checkOutDateTime = today.atTime(departureTime).atZone(CLINIC_ZONE).toOffsetDateTime();
+        OffsetDateTime nowServer = OffsetDateTime.now(CLINIC_ZONE);
+
+        if (checkOutDateTime.isAfter(nowServer)) {
+            checkOutDateTime = nowServer;
+        }
+
+        // Close the active open session
+        List<AttendancePunchSession> sessions = attendance.getSessions();
+        AttendancePunchSession openSession = null;
+        if (sessions != null && !sessions.isEmpty()) {
+            for (int i = sessions.size() - 1; i >= 0; i--) {
+                if (sessions.get(i).getCheckOutAt() == null) {
+                    openSession = sessions.get(i);
+                    break;
+                }
+            }
+        }
+
+        if (openSession != null) {
+            if (checkOutDateTime.isBefore(openSession.getCheckInAt())) {
+                checkOutDateTime = openSession.getCheckInAt().plusMinutes(1);
+            }
+            openSession.setCheckOutAt(checkOutDateTime);
+            openSession.setCheckOutLatitude(request.getLatitude());
+            openSession.setCheckOutLongitude(request.getLongitude());
+            openSession.setCheckOutAccuracy(request.getAccuracy());
+
+            long sessionMins = Duration.between(openSession.getCheckInAt(), checkOutDateTime).toMinutes();
+            openSession.setDurationMinutes((int) Math.max(0, sessionMins));
+
+            String note = openSession.getNotes() != null ? openSession.getNotes() : "";
+            openSession.setNotes(note + " [Remote Check-Out at " + departureTime.toString() + "]");
+        }
+
+        int totalMins = 0;
+        if (sessions != null) {
+            totalMins = sessions.stream()
+                .mapToInt(s -> s.getDurationMinutes() != null ? s.getDurationMinutes() : 0)
+                .sum();
+        }
+
+        attendance.setCheckOutAt(checkOutDateTime);
+        attendance.setCheckOutLatitude(request.getLatitude());
+        attendance.setCheckOutLongitude(request.getLongitude());
+        attendance.setCheckOutAccuracy(request.getAccuracy());
+        attendance.setTotalWorkMinutes(totalMins);
+        attendance.setCurrentSessionStatus("CHECKED_OUT");
+
+        String remoteTag = "[Remote Check-Out: Left clinic at " + departureTime.toString() + (StringUtils.hasText(request.getReason()) ? " | " + request.getReason() : "") + "]";
+        attendance.setNotes((attendance.getNotes() != null ? attendance.getNotes() + " | " : "") + remoteTag);
+
+        Attendance saved = attendanceRepository.save(attendance);
+        auditService.logAction(user, "REMOTE_CHECK_OUT", "ATTENDANCE", saved.getId(),
+            "Completed Remote Check-Out. Left clinic at " + departureTime.toString() + ". Total Work: " + (totalMins / 60) + "h " + (totalMins % 60) + "m");
+        return saved;
+    }
+
     public Optional<Attendance> getTodayAttendance(String username) {
         User user = userRepository.findByUsername(username).orElse(null);
         if (user == null) return Optional.empty();

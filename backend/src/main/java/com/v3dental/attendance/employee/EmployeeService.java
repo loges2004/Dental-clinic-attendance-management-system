@@ -53,10 +53,12 @@ public class EmployeeService {
         Branch branch = branchRepository.findById(req.getBranchId())
             .orElseThrow(() -> new RuntimeException("Branch not found: " + req.getBranchId()));
 
+        String email = StringUtils.hasText(req.getEmail()) ? req.getEmail().trim() : null;
+
         User user = User.builder()
-            .username(req.getUsername())
+            .username(req.getUsername().trim())
             .passwordHash(passwordEncoder.encode(req.getPassword()))
-            .email(req.getEmail())
+            .email(email)
             .role(role)
             .isActive(true)
             .build();
@@ -64,9 +66,9 @@ public class EmployeeService {
 
         Employee emp = Employee.builder()
             .user(savedUser)
-            .employeeCode(req.getEmployeeCode())
-            .firstName(req.getFirstName())
-            .lastName(req.getLastName())
+            .employeeCode(req.getEmployeeCode().trim())
+            .firstName(req.getFirstName().trim())
+            .lastName(req.getLastName() != null ? req.getLastName().trim() : "")
             .phone(req.getPhone())
             .designation(req.getDesignation())
             .department(req.getDepartment())
@@ -84,8 +86,8 @@ public class EmployeeService {
     @Transactional
     public Employee updateEmployee(Long id, CreateEmployeeRequest req, User adminUser) {
         Employee emp = getEmployeeById(id);
-        emp.setFirstName(req.getFirstName());
-        emp.setLastName(req.getLastName());
+        emp.setFirstName(req.getFirstName().trim());
+        emp.setLastName(req.getLastName() != null ? req.getLastName().trim() : "");
         emp.setPhone(req.getPhone());
         emp.setDesignation(req.getDesignation());
         emp.setDepartment(req.getDepartment());
@@ -101,8 +103,8 @@ public class EmployeeService {
         // Update User fields if present
         User u = emp.getUser();
         if (u != null) {
-            if (StringUtils.hasText(req.getEmail())) {
-                u.setEmail(req.getEmail());
+            if (req.getEmail() != null) {
+                u.setEmail(StringUtils.hasText(req.getEmail()) ? req.getEmail().trim() : null);
             }
             if (StringUtils.hasText(req.getPassword())) {
                 u.setPasswordHash(passwordEncoder.encode(req.getPassword()));

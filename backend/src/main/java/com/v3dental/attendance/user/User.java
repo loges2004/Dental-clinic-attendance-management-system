@@ -23,7 +23,7 @@ public class User {
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
-    @Column(unique = true, nullable = false, length = 150)
+    @Column(unique = true, nullable = true, length = 150)
     private String email;
 
     @ManyToOne(fetch = FetchType.EAGER)

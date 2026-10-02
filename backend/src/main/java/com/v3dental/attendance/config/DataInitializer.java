@@ -23,7 +23,7 @@ public class DataInitializer implements CommandLineRunner {
         log.info("Initializing / updating default seed user password hashes...");
 
         Map<String, String> defaultUsers = Map.of(
-            "admin", "Admin@V3Dental2026",
+            "admin", "V3@08062025",
             "dr_arun", "Doctor@V3Dental",
             "sister_priya", "Sister@V3Dental"
         );

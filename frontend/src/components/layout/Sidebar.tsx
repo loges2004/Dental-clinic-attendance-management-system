@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import ChangePasswordModal from '../auth/ChangePasswordModal';
 import {
   LayoutDashboard, Users, Building2, Clock, CalendarCheck, FileText,
-  LogOut, ChevronRight, X, Shield,
+  LogOut, ChevronRight, X, Shield, KeyRound,
   ClipboardList, Archive, BookOpen
 } from 'lucide-react';
 
@@ -67,6 +69,7 @@ interface SidebarProps {
 
 export default function Sidebar({ activePage, onNavigate, mobileOpen, onMobileClose }: SidebarProps) {
   const { user, logout, isAdmin } = useAuth();
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const sections = isAdmin ? ADMIN_SECTIONS : EMPLOYEE_SECTIONS;
 
   const handleNav = (id: string) => {
@@ -103,10 +106,20 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen, onMobileCl
           </button>
         </div>
 
-        {/* User Info */}
+        {/* User Info Card */}
         <div style={{ padding:'0.75rem 1rem', margin:'0.5rem 0.75rem', background:'rgba(13,148,136,0.08)', border:'1px solid var(--primary-border)', borderRadius:'var(--r-md)' }}>
-          <div style={{ fontSize:'0.85rem', fontWeight:700, color:'var(--text-1)' }}>
-            {user?.firstName} {user?.lastName}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize:'0.85rem', fontWeight:700, color:'var(--text-1)' }}>
+              {user?.firstName} {user?.lastName}
+            </div>
+            <button
+              onClick={() => setShowPasswordModal(true)}
+              title="Change Password"
+              className="btn btn-ghost btn-sm"
+              style={{ padding: '0.2rem 0.4rem', color: 'var(--cyan)' }}
+            >
+              <KeyRound size={13} />
+            </button>
           </div>
           <div style={{ fontSize:'0.72rem', color:'var(--primary-light)', marginTop:'0.1rem', display:'flex', alignItems:'center', gap:'0.3rem' }}>
             {isAdmin && <Shield size={11} />}
@@ -138,17 +151,30 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen, onMobileCl
         </nav>
 
         {/* Footer */}
-        <div className="sidebar-footer">
+        <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+          <button
+            className="nav-item"
+            onClick={() => setShowPasswordModal(true)}
+            style={{ width: '100%', color: 'var(--cyan)' }}
+          >
+            <KeyRound size={16} />
+            Change Password
+          </button>
           <button
             className="nav-item"
             onClick={logout}
             style={{ color: 'var(--rose)', width: '100%' }}
           >
-            <LogOut size={17} />
+            <LogOut size={16} />
             Sign Out
           </button>
         </div>
       </aside>
+
+      <ChangePasswordModal
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+      />
     </>
   );
 }

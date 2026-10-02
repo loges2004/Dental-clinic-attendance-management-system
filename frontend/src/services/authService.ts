@@ -14,6 +14,14 @@ export const authService = {
     return res.data;
   },
 
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ message: string }> {
+    const res = await api.post<{ message: string }>('/auth/change-password', {
+      currentPassword,
+      newPassword,
+    });
+    return res.data;
+  },
+
   logout() {
     localStorage.removeItem('v3_access_token');
     localStorage.removeItem('v3_refresh_token');

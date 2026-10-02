@@ -27,4 +27,8 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
 
     @Query("SELECT COUNT(a) FROM Attendance a WHERE a.attendanceDate BETWEEN :startDate AND :endDate")
     long countByAttendanceDateBetween(@Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);
+
+    @Modifying
+    @Query("DELETE FROM Attendance a WHERE a.employee.id = :employeeId")
+    void deleteByEmployeeId(@Param("employeeId") Long employeeId);
 }

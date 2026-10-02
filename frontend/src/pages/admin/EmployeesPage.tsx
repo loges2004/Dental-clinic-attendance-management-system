@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { branchService } from '../../services/branchService';
 import { employeeService } from '../../services/branchService';
-import { Users, Plus, Pencil, Trash2, X } from 'lucide-react';
+import { Users, Plus, Pencil, Trash2, X, KeyRound, Eye, EyeOff } from 'lucide-react';
 import { showAlert } from '../../utils/alerts';
 import type { Employee } from '../../types';
 
@@ -31,7 +31,9 @@ export default function EmployeesPage() {
   const [editForm, setEditForm] = useState({
     firstName: '', lastName: '', phone: '', designation: '',
     department: '', branchId: '', monthlyLeaveEntitlement: '', email: '',
+    password: '', roleName: 'DOCTOR',
   });
+  const [showEditPass, setShowEditPass] = useState(false);
 
   const { data: employees, isLoading } = useQuery({
     queryKey: ['employees'],
@@ -59,7 +61,7 @@ export default function EmployeesPage() {
     mutationFn: ({ id, data }: { id: number; data: any }) => employeeService.updateEmployee(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['employees'] });
-      showAlert.success('Updated Successfully!', 'Staff details have been updated.');
+      showAlert.success('Updated Successfully!', 'Staff details and login credentials have been updated.');
       setEditEmp(null);
     },
     onError: (err: any) => {
@@ -71,10 +73,10 @@ export default function EmployeesPage() {
     mutationFn: (id: number) => employeeService.deleteEmployee(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['employees'] });
-      showAlert.success('Deleted Successfully!', 'Staff member and their account have been removed.');
+      showAlert.success('Deleted Successfully!', 'Staff member and all related records have been removed.');
     },
     onError: (err: any) => {
-      showAlert.error('Delete Failed', err.response?.data?.message || 'Failed to delete employee.');
+      showAlert.error('Delete Failed', err.response?.data?.message || 'Failed to delete employee. Please ensure you are logged in as Admin.');
     },
   });
 
@@ -91,6 +93,7 @@ export default function EmployeesPage() {
 
   const openEdit = (emp: Employee) => {
     setEditEmp(emp);
+    setShowEditPass(false);
     setEditForm({
       firstName: emp.firstName,
       lastName: emp.lastName,
@@ -100,6 +103,8 @@ export default function EmployeesPage() {
       branchId: String(emp.branch?.id || ''),
       monthlyLeaveEntitlement: String(emp.monthlyLeaveEntitlement),
       email: (emp as any).user?.email || '',
+      password: '',
+      roleName: emp.user?.role?.name || 'DOCTOR',
     });
   };
 
@@ -113,6 +118,8 @@ export default function EmployeesPage() {
         branchId: Number(editForm.branchId) || null,
         monthlyLeaveEntitlement: Number(editForm.monthlyLeaveEntitlement),
         email: editForm.email || null,
+        password: editForm.password.trim() || undefined,
+        roleName: editForm.roleName,
       },
     });
   };
@@ -120,7 +127,7 @@ export default function EmployeesPage() {
   const handleDelete = async (emp: Employee) => {
     const ok = await showAlert.confirm(
       `Delete ${emp.firstName} ${emp.lastName}?`,
-      `Are you sure you want to delete staff (${emp.employeeCode})? This action cannot be undone.`,
+      `Are you sure you want to delete staff (${emp.employeeCode})? This will permanently delete their account, attendance logs, and leave records. This action cannot be undone.`,
       'Yes, Delete Staff'
     );
     if (ok) {
@@ -141,7 +148,7 @@ export default function EmployeesPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div>
           <h1 style={{ fontSize: '1.4rem', fontWeight: 800 }}>Staff Management</h1>
-          <p style={{ color: 'var(--text-2)', fontSize: '0.875rem' }}>Add, edit, assign branches, and manage dental clinic staff</p>
+          <p style={{ color: 'var(--text-2)', fontSize: '0.875rem' }}>Add, edit, reset passwords, and manage dental clinic staff</p>
         </div>
         <button
           className="btn btn-primary btn-sm"
@@ -222,12 +229,15 @@ export default function EmployeesPage() {
         </div>
       )}
 
-      {/* EDIT MODAL */}
+      {/* EDIT MODAL WITH PASSWORD RESET */}
       {editEmp && (
         <div className="modal-overlay">
           <div className="modal" style={{ maxWidth: 520, width: '92%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ fontWeight: 800, fontSize: '1.1rem' }}>Edit: {editEmp.firstName} {editEmp.lastName}</h3>
+              <div>
+                <h3 style={{ fontWeight: 800, fontSize: '1.1rem' }}>Edit: {editEmp.firstName} {editEmp.lastName}</h3>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>Employee Code: {editEmp.employeeCode} · User: {editEmp.user?.username}</span>
+              </div>
               <button className="btn btn-ghost btn-sm" onClick={() => setEditEmp(null)}><X size={16} /></button>
             </div>
 
@@ -248,13 +258,56 @@ export default function EmployeesPage() {
               </div>
 
               <div className="form-grid">
-                {fg('Branch', (
-                  <select className="form-select" value={editForm.branchId} onChange={e => setEditForm(f => ({ ...f, branchId: e.target.value }))}>
-                    <option value="">-- No Change --</option>
-                    {branches?.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                {fg('Role', (
+                  <select className="form-select" value={editForm.roleName} onChange={e => setEditForm(f => ({ ...f, roleName: e.target.value }))}>
+                    <option value="DOCTOR">Doctor</option>
+                    <option value="SISTER">Sister / Nurse</option>
+                    <option value="OTHER_STAFF">Other Staff</option>
+                    <option value="ADMIN">Admin</option>
                   </select>
                 ))}
                 {fg('Monthly Leave Entitlement', inp(editForm.monthlyLeaveEntitlement, v => setEditForm(f => ({ ...f, monthlyLeaveEntitlement: v })), { type: 'number', step: '0.5' }))}
+              </div>
+
+              {fg('Branch', (
+                <select className="form-select" value={editForm.branchId} onChange={e => setEditForm(f => ({ ...f, branchId: e.target.value }))}>
+                  <option value="">-- No Change --</option>
+                  {branches?.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              ))}
+
+              {/* PASSWORD RESET SECTION FOR ADMIN */}
+              <div style={{
+                background: 'rgba(13,148,136,0.06)',
+                border: '1px solid var(--primary-border)',
+                borderRadius: 'var(--r-sm)',
+                padding: '0.75rem',
+                marginTop: '0.25rem'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem', color: 'var(--primary-light)', fontSize: '0.8rem', fontWeight: 700 }}>
+                  <KeyRound size={14} /> Reset Employee Password (Optional)
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    className="form-input"
+                    type={showEditPass ? 'text' : 'password'}
+                    placeholder="Leave blank to keep current password"
+                    value={editForm.password}
+                    onChange={e => setEditForm(f => ({ ...f, password: e.target.value }))}
+                    style={{ paddingRight: '2.5rem' }}
+                    minLength={6}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPass(s => !s)}
+                    style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer' }}
+                  >
+                    {showEditPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-3)', marginTop: '0.25rem' }}>
+                  If the employee forgot their password, type a new password here (min 6 characters) to reset it.
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
@@ -295,10 +348,10 @@ export default function EmployeesPage() {
                   <span style={{ fontSize: '0.78rem', color: 'var(--primary-light)', fontWeight: 600 }}>
                     {emp.monthlyLeaveEntitlement} days/mo
                   </span>
-                  <button className="btn btn-ghost btn-sm" title="Edit" onClick={() => openEdit(emp)} style={{ padding: '0.3rem 0.55rem' }}>
+                  <button className="btn btn-ghost btn-sm" title="Edit & Reset Password" onClick={() => openEdit(emp)} style={{ padding: '0.3rem 0.55rem' }}>
                     <Pencil size={14} />
                   </button>
-                  <button className="btn btn-ghost btn-sm" title="Delete" onClick={() => handleDelete(emp)} style={{ padding: '0.3rem 0.55rem', color: 'var(--rose)' }}>
+                  <button className="btn btn-ghost btn-sm" title="Delete Staff" onClick={() => handleDelete(emp)} style={{ padding: '0.3rem 0.55rem', color: 'var(--rose)' }}>
                     <Trash2 size={14} />
                   </button>
                 </div>

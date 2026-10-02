@@ -2,6 +2,7 @@ package com.v3dental.attendance.auth.service;
 
 import com.v3dental.attendance.audit.AuditService;
 import com.v3dental.attendance.auth.dto.AuthResponse;
+import com.v3dental.attendance.auth.dto.ChangePasswordRequest;
 import com.v3dental.attendance.auth.dto.LoginRequest;
 import com.v3dental.attendance.auth.dto.UserDto;
 import com.v3dental.attendance.auth.security.JwtUtils;
@@ -17,6 +18,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -28,6 +30,7 @@ public class AuthService {
     private final EmployeeRepository employeeRepository;
     private final UserDetailsService userDetailsService;
     private final AuditService auditService;
+    private final PasswordEncoder passwordEncoder;
 
     public AuthResponse login(LoginRequest request) {
         Authentication authentication = authenticationManager.authenticate(
@@ -55,6 +58,24 @@ public class AuthService {
         User user = userRepository.findByUsername(username)
             .orElseThrow(() -> new RuntimeException("User not found"));
         return buildUserDto(user);
+    }
+
+    @Transactional
+    public void changePassword(String username, ChangePasswordRequest request) {
+        User user = userRepository.findByUsername(username)
+            .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+            throw new IllegalArgumentException("Current password is incorrect");
+        }
+
+        if (request.getNewPassword() == null || request.getNewPassword().length() < 6) {
+            throw new IllegalArgumentException("New password must be at least 6 characters long");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+        auditService.logAction(user, "PASSWORD_CHANGED", "USER", user.getId(), "User changed password successfully");
     }
 
     public UserDto buildUserDto(User user) {

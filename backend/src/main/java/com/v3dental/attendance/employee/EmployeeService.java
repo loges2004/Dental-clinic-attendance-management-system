@@ -1,8 +1,13 @@
 package com.v3dental.attendance.employee;
 
+import com.v3dental.attendance.audit.AuditLogRepository;
 import com.v3dental.attendance.audit.AuditService;
+import com.v3dental.attendance.attendance.AttendanceRepository;
 import com.v3dental.attendance.branch.Branch;
 import com.v3dental.attendance.branch.BranchRepository;
+import com.v3dental.attendance.leave.LeavePeriodRepository;
+import com.v3dental.attendance.leave.LeaveRequestRepository;
+import com.v3dental.attendance.leave.LeaveTransactionRepository;
 import com.v3dental.attendance.user.Role;
 import com.v3dental.attendance.user.RoleRepository;
 import com.v3dental.attendance.user.User;
@@ -11,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 
@@ -22,6 +28,11 @@ public class EmployeeService {
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final BranchRepository branchRepository;
+    private final AttendanceRepository attendanceRepository;
+    private final LeaveRequestRepository leaveRequestRepository;
+    private final LeavePeriodRepository leavePeriodRepository;
+    private final LeaveTransactionRepository leaveTransactionRepository;
+    private final AuditLogRepository auditLogRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
 
@@ -31,23 +42,16 @@ public class EmployeeService {
 
     public Employee getEmployeeById(Long id) {
         return employeeRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Employee not found with ID: " + id));
+            .orElseThrow(() -> new RuntimeException("Employee not found with id: " + id));
     }
 
     @Transactional
     public Employee createEmployee(CreateEmployeeRequest req, User adminUser) {
-        if (userRepository.existsByUsername(req.getUsername())) {
-            throw new RuntimeException("Username already exists");
-        }
-        if (employeeRepository.existsByEmployeeCode(req.getEmployeeCode())) {
-            throw new RuntimeException("Employee code already exists");
-        }
-
         Role role = roleRepository.findByName(req.getRoleName())
             .orElseThrow(() -> new RuntimeException("Role not found: " + req.getRoleName()));
 
         Branch branch = branchRepository.findById(req.getBranchId())
-            .orElseThrow(() -> new RuntimeException("Branch not found"));
+            .orElseThrow(() -> new RuntimeException("Branch not found: " + req.getBranchId()));
 
         User user = User.builder()
             .username(req.getUsername())
@@ -56,9 +60,10 @@ public class EmployeeService {
             .role(role)
             .isActive(true)
             .build();
+        User savedUser = userRepository.save(user);
 
-        Employee employee = Employee.builder()
-            .user(user)
+        Employee emp = Employee.builder()
+            .user(savedUser)
             .employeeCode(req.getEmployeeCode())
             .firstName(req.getFirstName())
             .lastName(req.getLastName())
@@ -67,12 +72,12 @@ public class EmployeeService {
             .department(req.getDepartment())
             .branch(branch)
             .joiningDate(req.getJoiningDate())
-            .isActive(true)
             .monthlyLeaveEntitlement(req.getMonthlyLeaveEntitlement())
+            .isActive(true)
             .build();
 
-        Employee saved = employeeRepository.save(employee);
-        auditService.logAction(adminUser, "EMPLOYEE_CREATED", "EMPLOYEE", saved.getId(), "Created employee: " + saved.getFirstName() + " " + saved.getLastName());
+        Employee saved = employeeRepository.save(emp);
+        auditService.logAction(adminUser, "EMPLOYEE_CREATED", "EMPLOYEE", saved.getId(), "Created employee: " + saved.getEmployeeCode());
         return saved;
     }
 
@@ -84,11 +89,28 @@ public class EmployeeService {
         emp.setPhone(req.getPhone());
         emp.setDesignation(req.getDesignation());
         emp.setDepartment(req.getDepartment());
-        emp.setMonthlyLeaveEntitlement(req.getMonthlyLeaveEntitlement());
+        if (req.getMonthlyLeaveEntitlement() != null) {
+            emp.setMonthlyLeaveEntitlement(req.getMonthlyLeaveEntitlement());
+        }
 
         if (req.getBranchId() != null) {
             Branch b = branchRepository.findById(req.getBranchId()).orElse(emp.getBranch());
             emp.setBranch(b);
+        }
+
+        // Update User fields if present
+        User u = emp.getUser();
+        if (u != null) {
+            if (StringUtils.hasText(req.getEmail())) {
+                u.setEmail(req.getEmail());
+            }
+            if (StringUtils.hasText(req.getPassword())) {
+                u.setPasswordHash(passwordEncoder.encode(req.getPassword()));
+            }
+            if (StringUtils.hasText(req.getRoleName())) {
+                roleRepository.findByName(req.getRoleName()).ifPresent(u::setRole);
+            }
+            userRepository.save(u);
         }
 
         Employee saved = employeeRepository.save(emp);
@@ -100,7 +122,10 @@ public class EmployeeService {
     public Employee toggleEmployeeStatus(Long id, boolean active, User adminUser) {
         Employee emp = getEmployeeById(id);
         emp.setIsActive(active);
-        emp.getUser().setIsActive(active);
+        if (emp.getUser() != null) {
+            emp.getUser().setIsActive(active);
+            userRepository.save(emp.getUser());
+        }
         Employee saved = employeeRepository.save(emp);
         auditService.logAction(adminUser, active ? "EMPLOYEE_REACTIVATED" : "EMPLOYEE_DISABLED", "EMPLOYEE", id, "Toggled status to " + active);
         return saved;
@@ -111,7 +136,32 @@ public class EmployeeService {
         Employee emp = getEmployeeById(id);
         String name = emp.getFirstName() + " " + emp.getLastName();
         String code = emp.getEmployeeCode();
-        auditService.logAction(adminUser, "EMPLOYEE_DELETED", "EMPLOYEE", id, "Deleted employee: " + name + " (" + code + ")");
+        User u = emp.getUser();
+        Long userId = u != null ? u.getId() : null;
+
+        // 1. Delete associated leave transactions
+        leaveTransactionRepository.deleteByEmployeeIdOrCreatedById(id, userId != null ? userId : -1L);
+
+        // 2. Delete associated leave periods & leave requests
+        leavePeriodRepository.deleteByEmployeeId(id);
+        leaveRequestRepository.deleteByEmployeeId(id);
+
+        // 3. Delete attendance records
+        attendanceRepository.deleteByEmployeeId(id);
+
+        // 4. Nullify audit log user references to avoid FK constraint
+        if (userId != null) {
+            auditLogRepository.nullifyUser(userId);
+        }
+
+        // 5. Delete employee record
         employeeRepository.delete(emp);
+
+        // 6. Delete user account
+        if (u != null) {
+            userRepository.delete(u);
+        }
+
+        auditService.logAction(adminUser, "EMPLOYEE_DELETED", "EMPLOYEE", id, "Deleted employee: " + name + " (" + code + ")");
     }
 }

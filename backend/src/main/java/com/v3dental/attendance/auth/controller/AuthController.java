@@ -1,6 +1,7 @@
 package com.v3dental.attendance.auth.controller;
 
 import com.v3dental.attendance.auth.dto.AuthResponse;
+import com.v3dental.attendance.auth.dto.ChangePasswordRequest;
 import com.v3dental.attendance.auth.dto.LoginRequest;
 import com.v3dental.attendance.auth.dto.UserDto;
 import com.v3dental.attendance.auth.service.AuthService;
@@ -32,6 +33,18 @@ public class AuthController {
         }
         UserDto user = authService.getCurrentUser(authentication.getName());
         return ResponseEntity.ok(user);
+    }
+
+    @PostMapping("/change-password")
+    public ResponseEntity<Map<String, String>> changePassword(
+        @Valid @RequestBody ChangePasswordRequest request,
+        Authentication authentication
+    ) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return ResponseEntity.status(401).build();
+        }
+        authService.changePassword(authentication.getName(), request);
+        return ResponseEntity.ok(Map.of("message", "Password changed successfully"));
     }
 
     @PostMapping("/logout")

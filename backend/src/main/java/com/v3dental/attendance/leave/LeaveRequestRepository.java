@@ -1,6 +1,7 @@
 package com.v3dental.attendance.leave;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import java.time.LocalDate;
@@ -16,4 +17,8 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, Long
 
     @Query("SELECT lr FROM LeaveRequest lr WHERE lr.status = 'APPROVED' AND :checkDate BETWEEN lr.startDate AND lr.endDate")
     List<LeaveRequest> findAllApprovedLeavesOnDate(@Param("checkDate") LocalDate checkDate);
+
+    @Modifying
+    @Query("DELETE FROM LeaveRequest lr WHERE lr.employee.id = :employeeId")
+    void deleteByEmployeeId(@Param("employeeId") Long employeeId);
 }

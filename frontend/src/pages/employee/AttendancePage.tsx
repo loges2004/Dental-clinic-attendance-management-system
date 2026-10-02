@@ -19,7 +19,7 @@ interface GPSState {
 }
 
 function isOutsideLocationError(msg: string): boolean {
-  return /outside|location|distance|geofence|radius/i.test(msg);
+  return /outside\s+the\s+allowed|outside\s+branch|outside\s+clinic|geofence|accuracy\s+is\s+too\s+low/i.test(msg);
 }
 
 export default function AttendancePage({ onNavigate }: { onNavigate: (p: string) => void }) {
@@ -69,7 +69,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
           accuracy: acc,
-          status: acc <= 150 ? 'ready' : 'refining',
+          status: acc <= 200 ? 'ready' : 'refining',
           error: undefined,
         });
       },
@@ -87,7 +87,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
           error: errorMessages[err.code] || 'Could not acquire GPS location',
         });
       },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 }
     );
   }, []);
 
@@ -99,27 +99,6 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
       }
     };
   }, [startGpsWatcher]);
-
-  // Request fresh high precision lock
-  const acquireHighAccuracyGPS = async (): Promise<{ lat: number; lng: number; acc: number } | null> => {
-    return new Promise(resolve => {
-      if (!navigator.geolocation) return resolve(null);
-      navigator.geolocation.getCurrentPosition(
-        pos => {
-          const acc = Math.round(pos.coords.accuracy);
-          setGps({
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
-            accuracy: acc,
-            status: acc <= 150 ? 'ready' : 'refining',
-          });
-          resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc });
-        },
-        () => resolve(null),
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-      );
-    });
-  };
 
   const att = todayAttendance;
   const sessions = att?.sessions || [];
@@ -133,41 +112,20 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
   const activeSession = isCurrentlyIn ? sessions[sessions.length - 1] : null;
 
   const handleCheckIn = async () => {
+    if (!gps.latitude || !gps.longitude) {
+      startGpsWatcher();
+      showAlert.warning('Acquiring Location', 'Waiting for GPS signal. Please allow location access and try again.');
+      return;
+    }
+
     setActionLoading(true);
     setActionMsg(null);
 
-    // Refresh position to get latest high accuracy reading
-    let currentLat = gps.latitude;
-    let currentLng = gps.longitude;
-    let currentAcc = gps.accuracy;
-
-    const freshPos = await acquireHighAccuracyGPS();
-    if (freshPos) {
-      currentLat = freshPos.lat;
-      currentLng = freshPos.lng;
-      currentAcc = freshPos.acc;
-    }
-
-    if (!currentLat || !currentLng) {
-      setActionLoading(false);
-      showAlert.error('GPS Not Available', 'Please enable Location / GPS on your device and grant permission.');
-      return;
-    }
-
-    if (currentAcc && currentAcc > 150) {
-      setActionLoading(false);
-      showAlert.warning(
-        'Refining GPS Signal 📍',
-        `Your device is currently in coarse mode (±${currentAcc}m). Please enable "Google Location Accuracy / High Precision" in phone settings or step near a door/window for 5 seconds.`
-      );
-      return;
-    }
-
     try {
       await attendanceService.checkIn(
-        currentLat,
-        currentLng,
-        currentAcc || 10
+        gps.latitude,
+        gps.longitude,
+        gps.accuracy || 10
       );
       const isReEntry = hasEverCheckedInToday;
       showAlert.success(
@@ -180,7 +138,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
       const msg = err.response?.data?.message || (err.response?.status === 403 ? 'Access denied. Please sign in again.' : err.message) || 'Check-in failed';
       if (isOutsideLocationError(msg)) {
         setActionMsg({ type: 'location', text: msg });
-        showAlert.error('Outside Clinic Location 📍', msg);
+        showAlert.error('Location Check 📍', msg);
       } else {
         setActionMsg({ type: 'error', text: msg });
         showAlert.error('Check-in Failed', msg);
@@ -191,6 +149,12 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
   };
 
   const handleCheckOut = async () => {
+    if (!gps.latitude || !gps.longitude) {
+      startGpsWatcher();
+      showAlert.warning('Acquiring Location', 'Waiting for GPS signal. Please try again in a few moments.');
+      return;
+    }
+
     const confirmed = await showAlert.confirm(
       'Confirm Check-Out',
       'Are you checking out for Lunch / Break or Shift End?',
@@ -201,28 +165,11 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
     setActionLoading(true);
     setActionMsg(null);
 
-    let currentLat = gps.latitude;
-    let currentLng = gps.longitude;
-    let currentAcc = gps.accuracy;
-
-    const freshPos = await acquireHighAccuracyGPS();
-    if (freshPos) {
-      currentLat = freshPos.lat;
-      currentLng = freshPos.lng;
-      currentAcc = freshPos.acc;
-    }
-
-    if (!currentLat || !currentLng) {
-      setActionLoading(false);
-      showAlert.error('GPS Not Available', 'Please enable Location / GPS on your device.');
-      return;
-    }
-
     try {
       await attendanceService.checkOut(
-        currentLat,
-        currentLng,
-        currentAcc || 10
+        gps.latitude,
+        gps.longitude,
+        gps.accuracy || 10
       );
       showAlert.success('Check-out Recorded! 👋', 'Session time saved. You can check in again anytime when you return.');
       setActionMsg({ type: 'success', text: 'Checked out successfully!' });
@@ -231,7 +178,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
       const msg = err.response?.data?.message || (err.response?.status === 403 ? 'Access denied. Please sign in again.' : err.message) || 'Check-out failed';
       if (isOutsideLocationError(msg)) {
         setActionMsg({ type: 'location', text: msg });
-        showAlert.error('Outside Clinic Location 📍', msg);
+        showAlert.error('Location Check 📍', msg);
       } else {
         setActionMsg({ type: 'error', text: msg });
         showAlert.error('Check-out Failed', msg);
@@ -240,6 +187,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
       setActionLoading(false);
     }
   };
+
 
   const formatTime = (iso: string | null | undefined) => {
     if (!iso) return '--:--';

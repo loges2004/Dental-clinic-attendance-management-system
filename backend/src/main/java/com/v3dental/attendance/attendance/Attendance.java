@@ -75,9 +75,11 @@ public class Attendance {
     private String status; // PRESENT, LATE, EARLY_CHECKOUT, ABSENT, HALF_DAY, ON_LEAVE
 
     @Column(name = "is_late", nullable = false)
+    @Builder.Default
     private Boolean isLate = false;
 
     @Column(name = "is_early_checkout", nullable = false)
+    @Builder.Default
     private Boolean isEarlyCheckout = false;
 
     @Column(columnDefinition = "TEXT")
@@ -100,18 +102,30 @@ public class Attendance {
     @Column(name = "created_at", updatable = false)
     private OffsetDateTime createdAt;
 
-
     @Column(name = "updated_at")
     private OffsetDateTime updatedAt;
 
     @PrePersist
     protected void onCreate() {
-        createdAt = OffsetDateTime.now();
-        updatedAt = OffsetDateTime.now();
+        if (createdAt == null) {
+            createdAt = OffsetDateTime.now();
+        }
+        if (updatedAt == null) {
+            updatedAt = OffsetDateTime.now();
+        }
+        if (isLate == null) isLate = false;
+        if (isEarlyCheckout == null) isEarlyCheckout = false;
+        if (totalWorkMinutes == null) totalWorkMinutes = 0;
+        if (currentSessionStatus == null) currentSessionStatus = "CHECKED_IN";
     }
 
     @PreUpdate
     protected void onUpdate() {
         updatedAt = OffsetDateTime.now();
+        if (isLate == null) isLate = false;
+        if (isEarlyCheckout == null) isEarlyCheckout = false;
+        if (totalWorkMinutes == null) totalWorkMinutes = 0;
+        if (currentSessionStatus == null) currentSessionStatus = "CHECKED_IN";
     }
 }
+

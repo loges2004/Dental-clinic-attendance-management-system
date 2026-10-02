@@ -150,11 +150,13 @@ public class AttendanceService {
             .checkInDistance(BigDecimal.valueOf(distanceMeters).setScale(2, RoundingMode.HALF_UP))
             .status(status)
             .isLate(isLate)
+            .isEarlyCheckout(false)
             .notes(request.getNotes())
             .totalWorkMinutes(0)
             .currentSessionStatus("CHECKED_IN")
             .sessions(new ArrayList<>())
             .build();
+
 
         AttendancePunchSession initialSession = AttendancePunchSession.builder()
             .attendance(attendance)

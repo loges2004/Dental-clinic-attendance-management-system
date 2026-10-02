@@ -25,7 +25,9 @@ public class AttendancePunchSession {
     private Attendance attendance;
 
     @Column(name = "session_number", nullable = false)
+    @Builder.Default
     private Integer sessionNumber = 1;
+
 
     // Session Check-In
     @Column(name = "check_in_at", nullable = false)
@@ -60,7 +62,9 @@ public class AttendancePunchSession {
     private BigDecimal checkOutDistance;
 
     @Column(name = "duration_minutes")
+    @Builder.Default
     private Integer durationMinutes = 0;
+
 
     @Column(columnDefinition = "TEXT")
     private String notes;

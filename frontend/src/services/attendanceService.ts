@@ -32,12 +32,36 @@ export const attendanceService = {
     return res.data;
   },
 
-  downloadPdf(year: number, month: number) {
-    window.open(`/api/attendance/archive/export/pdf?year=${year}&month=${month}`, '_blank');
+  async downloadPdf(year: number, month: number) {
+    const res = await api.get('/attendance/archive/export/pdf', {
+      params: { year, month },
+      responseType: 'blob',
+    });
+    const blob = new Blob([res.data], { type: 'application/pdf' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `V3_Attendance_${year}_${String(month).padStart(2, '0')}.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.parentNode?.removeChild(link);
+    window.URL.revokeObjectURL(url);
   },
 
-  downloadExcel(year: number, month: number) {
-    window.open(`/api/attendance/archive/export/excel?year=${year}&month=${month}`, '_blank');
+  async downloadExcel(year: number, month: number) {
+    const res = await api.get('/attendance/archive/export/excel', {
+      params: { year, month },
+      responseType: 'blob',
+    });
+    const blob = new Blob([res.data], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `V3_Attendance_${year}_${String(month).padStart(2, '0')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.parentNode?.removeChild(link);
+    window.URL.revokeObjectURL(url);
   },
 
   async deleteMonthlyRecords(year: number, month: number): Promise<{ message: string; deletedRecordsCount: number }> {

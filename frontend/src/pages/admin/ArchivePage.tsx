@@ -109,14 +109,28 @@ export default function ArchivePage() {
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
           <button
             className="btn btn-primary"
-            onClick={() => attendanceService.downloadExcel(year, month)}
+            onClick={async () => {
+              try {
+                await attendanceService.downloadExcel(year, month);
+                showAlert.success('Download Complete', `Attendance records exported for ${MONTHS[month-1]} ${year}.`);
+              } catch (err: any) {
+                showAlert.error('Export Failed', err.response?.data?.message || 'Could not export Excel file.');
+              }
+            }}
             id="export-excel-btn"
           >
-            <Table size={16} /> Export Excel (.xlsx)
+            <Table size={16} /> Export Excel / CSV
           </button>
           <button
             className="btn btn-ghost"
-            onClick={() => attendanceService.downloadPdf(year, month)}
+            onClick={async () => {
+              try {
+                await attendanceService.downloadPdf(year, month);
+                showAlert.success('Download Complete', `PDF report downloaded for ${MONTHS[month-1]} ${year}.`);
+              } catch (err: any) {
+                showAlert.error('Export Failed', err.response?.data?.message || 'Could not export PDF file.');
+              }
+            }}
             id="export-pdf-btn"
           >
             <FileText size={16} /> Export PDF (.pdf)

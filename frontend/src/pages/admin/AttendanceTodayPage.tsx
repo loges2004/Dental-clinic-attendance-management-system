@@ -39,6 +39,7 @@ export default function AttendanceTodayPage() {
   const [branchId, setBranchId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'live' | 'requests'>('live');
   const [showManualModal, setShowManualModal] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'LATE' | 'IN' | 'OUT'>('ALL');
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
 
   // Live Attendance
@@ -50,6 +51,14 @@ export default function AttendanceTodayPage() {
     }),
     refetchInterval: 15000,
   });
+
+  const filteredAttendance = attendance?.filter(a => {
+    if (statusFilter === 'LATE') return a.isLate;
+    if (statusFilter === 'IN') return a.currentSessionStatus === 'CHECKED_IN';
+    if (statusFilter === 'OUT') return a.currentSessionStatus === 'CHECKED_OUT';
+    return true;
+  }) || [];
+
 
   const { data: branches } = useQuery({
     queryKey: ['branches'],
@@ -214,31 +223,90 @@ export default function AttendanceTodayPage() {
             </div>
           </div>
 
-          {/* Filter */}
-          <div className="glass-card" style={{ padding: '0.75rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-            <Filter size={16} color="var(--text-3)" />
-            <select
-              className="form-select"
-              style={{ maxWidth: 220, flex: 1 }}
-              value={branchId}
-              onChange={e => setBranchId(e.target.value)}
-            >
-              <option value="">All Branches</option>
-              {branches?.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+          {/* Filter Bar */}
+          <div className="glass-card" style={{ padding: '0.75rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: 200 }}>
+              <Filter size={16} color="var(--text-3)" />
+              <select
+                className="form-select"
+                style={{ maxWidth: 220, flex: 1 }}
+                value={branchId}
+                onChange={e => setBranchId(e.target.value)}
+              >
+                <option value="">All Branches</option>
+                {branches?.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+
+            {/* Status Filter Buttons */}
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setStatusFilter('ALL')}
+                style={{
+                  background: statusFilter === 'ALL' ? 'var(--primary)' : 'rgba(255,255,255,0.06)',
+                  color: statusFilter === 'ALL' ? '#fff' : 'var(--text-2)',
+                  fontWeight: 600,
+                  fontSize: '0.8rem',
+                }}
+              >
+                All ({attendance?.length || 0})
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setStatusFilter('LATE')}
+                style={{
+                  background: statusFilter === 'LATE' ? 'var(--amber)' : 'rgba(245,158,11,0.12)',
+                  color: statusFilter === 'LATE' ? '#000' : 'var(--amber)',
+                  fontWeight: 700,
+                  fontSize: '0.8rem',
+                }}
+              >
+                Late Arrivals ({late})
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setStatusFilter('IN')}
+                style={{
+                  background: statusFilter === 'IN' ? 'var(--emerald)' : 'rgba(16,185,129,0.12)',
+                  color: statusFilter === 'IN' ? '#fff' : 'var(--emerald)',
+                  fontWeight: 600,
+                  fontSize: '0.8rem',
+                }}
+              >
+                Currently In ({currentlyInStaff})
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setStatusFilter('OUT')}
+                style={{
+                  background: statusFilter === 'OUT' ? 'var(--rose)' : 'rgba(244,63,94,0.12)',
+                  color: statusFilter === 'OUT' ? '#fff' : 'var(--rose)',
+                  fontWeight: 600,
+                  fontSize: '0.8rem',
+                }}
+              >
+                Checked Out ({checkedOutStaff})
+              </button>
+            </div>
           </div>
 
           {/* Attendance List */}
           {isLoading ? (
             <div className="loading-center"><div className="spinner" /></div>
-          ) : !attendance?.length ? (
+          ) : !filteredAttendance?.length ? (
             <div className="glass-card p-6" style={{ textAlign: 'center', color: 'var(--text-2)' }}>
               <CalendarCheck size={40} style={{ margin: '0 auto 1rem', opacity: 0.4 }} />
-              <p>No attendance records for today</p>
+              <p>No matching attendance records found</p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {attendance.map((a: Attendance) => {
+              {filteredAttendance.map((a: Attendance) => {
+
                 const isCurrentlyIn = a.currentSessionStatus === 'CHECKED_IN';
                 const sessions = a.sessions || [];
                 const isExpanded = expandedRow === a.id;

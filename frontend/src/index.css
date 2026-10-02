@@ -758,7 +758,7 @@ tbody td strong { color: var(--text-1); }
 
   .main-content {
     margin-left: 0;
-    padding-bottom: calc(110px + var(--safe-bottom));
+    padding-bottom: calc(130px + var(--safe-bottom));
   }
 
   .mobile-header {
@@ -782,7 +782,7 @@ tbody td strong { color: var(--text-1); }
   }
 
   .page-body {
-    padding: 0.85rem 0.85rem calc(110px + var(--safe-bottom));
+    padding: 0.85rem 0.85rem calc(130px + var(--safe-bottom));
   }
 
   .form-grid {
@@ -825,7 +825,7 @@ tbody td strong { color: var(--text-1); }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
   .leave-balance-grid { grid-template-columns: repeat(2, 1fr); }
   .checkin-btn { width: 145px !important; height: 145px !important; font-size: 0.95rem; }
-  .page-body { padding: 0.75rem 0.75rem calc(115px + var(--safe-bottom)); }
+  .page-body { padding: 0.75rem 0.75rem calc(140px + var(--safe-bottom)); }
 }
 /* ── SweetAlert2 Custom Styling ──────────────── */
 .swal2-popup.v3-swal-popup {

@@ -262,7 +262,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
   const greeting = now.getHours() < 12 ? 'Good Morning' : now.getHours() < 17 ? 'Good Afternoon' : 'Good Evening';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', paddingBottom: 'calc(140px + env(safe-area-inset-bottom, 20px))' }}>
 
       {/* Header Info */}
       <div className="glass-card p-5">
@@ -694,6 +694,9 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
           </button>
         </div>
       </div>
+
+      {/* Extra bottom clearance for mobile navigation bar */}
+      <div style={{ height: 40, flexShrink: 0 }} />
 
       {/* Regularization Request Modal */}
       <RegularizationRequestModal

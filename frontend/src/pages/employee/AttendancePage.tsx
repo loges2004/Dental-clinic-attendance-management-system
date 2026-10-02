@@ -6,8 +6,9 @@ import { useAuth } from '../../context/AuthContext';
 import { showAlert } from '../../utils/alerts';
 import {
   MapPin, WifiOff, RefreshCw, Navigation,
-  LogIn, LogOut, Clock, ClipboardList, History, AlertTriangle
+  LogIn, LogOut, Clock, ClipboardList, History
 } from 'lucide-react';
+
 import RegularizationRequestModal from '../../components/attendance/RegularizationRequestModal';
 
 interface GPSState {
@@ -69,14 +70,14 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
           accuracy: acc,
-          status: acc <= 200 ? 'ready' : 'refining',
+          status: 'ready',
           error: undefined,
         });
       },
       err => {
         const errorMessages: Record<number, string> = {
           1: 'Location permission was denied. Please allow location access in your browser settings.',
-          2: 'Location information is unavailable. Please turn on phone GPS / High Accuracy.',
+          2: 'Location information is unavailable. Please turn on phone GPS.',
           3: 'Location request timed out. Please try again.',
         };
         setGps({
@@ -87,8 +88,9 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
           error: errorMessages[err.code] || 'Could not acquire GPS location',
         });
       },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
     );
+
   }, []);
 
   useEffect(() => {
@@ -301,30 +303,28 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          borderLeft: gps.status === 'ready' ? '4px solid var(--emerald)' : gps.status === 'refining' ? '4px solid var(--amber)' : '4px solid var(--rose)',
+          borderLeft: gps.status === 'ready' ? '4px solid var(--emerald)' : gps.status === 'acquiring' ? '4px solid var(--cyan)' : '4px solid var(--rose)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <div style={{
             width: 36, height: 36, borderRadius: '50%',
-            background: gps.status === 'ready' ? 'rgba(16,185,129,0.15)' : gps.status === 'refining' ? 'rgba(245,158,11,0.15)' : 'rgba(244,63,94,0.15)',
+            background: gps.status === 'ready' ? 'rgba(16,185,129,0.15)' : gps.status === 'acquiring' ? 'rgba(6,182,212,0.15)' : 'rgba(244,63,94,0.15)',
             display: 'flex', alignItems: 'center', justifyContent: 'center'
           }}>
             {gps.status === 'ready' ? <Navigation size={18} color="var(--emerald)" /> :
-             gps.status === 'refining' ? <AlertTriangle size={18} color="var(--amber)" /> :
              gps.status === 'acquiring' ? <RefreshCw size={18} color="var(--cyan)" className="spinner" /> :
              <WifiOff size={18} color="var(--rose)" />}
           </div>
           <div>
             <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-1)' }}>
-              {gps.status === 'ready' ? 'GPS Signal Ready (High Accuracy)' :
-               gps.status === 'refining' ? 'Refining GPS Lock (Satellite fix pending)' :
-               gps.status === 'acquiring' ? 'Acquiring GPS location...' :
+              {gps.status === 'ready' ? 'Location Detected (Clinic Premises)' :
+               gps.status === 'acquiring' ? 'Detecting clinic location...' :
                gps.status === 'denied' ? 'Location Permission Denied' : 'Location Error'}
             </div>
             <div style={{ fontSize: '0.75rem', color: gps.status === 'ready' ? 'var(--emerald)' : 'var(--text-3)', marginTop: 2 }}>
               {gps.accuracy ? (
-                <span>Accuracy: ±{gps.accuracy}m {gps.accuracy > 150 ? '(Coarse network mode - refining...)' : '(Precise)'}</span>
+                <span>GPS Accuracy: ±{gps.accuracy}m · Signal Active</span>
               ) : (
                 'Waiting for device coordinates...'
               )}
@@ -340,6 +340,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
           <RefreshCw size={14} className={gps.status === 'acquiring' ? 'spinner' : ''} />
         </button>
       </div>
+
 
       {/* CUMULATIVE WORK HOURS HERO CARD */}
       {hasEverCheckedInToday && (

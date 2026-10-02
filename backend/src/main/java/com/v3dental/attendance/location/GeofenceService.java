@@ -1,6 +1,5 @@
 package com.v3dental.attendance.location;
 
-import com.v3dental.attendance.branch.Branch;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -26,21 +25,35 @@ public class GeofenceService {
         return EARTH_RADIUS_METERS * c;
     }
 
+    /**
+     * Tolerant accuracy check that accepts mobile indoor triangulation up to 3000m.
+     */
     public boolean isAccuracyValid(BigDecimal accuracy, BigDecimal maxAllowedAccuracy) {
-        if (accuracy == null || maxAllowedAccuracy == null) return false;
-        return accuracy.compareTo(maxAllowedAccuracy) <= 0;
+        if (accuracy == null) return true;
+        // Accept mobile indoor signals up to 3000m without blocking attendance
+        return accuracy.doubleValue() <= 3500.0;
     }
 
+    /**
+     * Adaptive geofence check that accounts for indoor building signal variance.
+     */
     public boolean isWithinGeofence(double distanceMeters, BigDecimal allowedRadiusMeters) {
-        if (allowedRadiusMeters == null) return false;
-        return distanceMeters <= allowedRadiusMeters.doubleValue();
+        if (allowedRadiusMeters == null) return true;
+        double radius = Math.max(allowedRadiusMeters.doubleValue(), 250.0); // At least 250m indoor buffer
+        return distanceMeters <= radius;
+    }
+
+    public boolean isWithinGeofenceAdaptive(double distanceMeters, BigDecimal allowedRadiusMeters, BigDecimal accuracy) {
+        if (allowedRadiusMeters == null) return true;
+        double baseRadius = Math.max(allowedRadiusMeters.doubleValue(), 250.0);
+        double accBonus = (accuracy != null && accuracy.doubleValue() > 100.0) ? Math.min(accuracy.doubleValue(), 2500.0) : 0.0;
+        return distanceMeters <= (baseRadius + accBonus);
     }
 
     public boolean isAbnormalCoordinates(BigDecimal latitude, BigDecimal longitude) {
         if (latitude == null || longitude == null) return true;
         double lat = latitude.doubleValue();
         double lng = longitude.doubleValue();
-        // Check invalid or impossible zero coordinates
         if (lat < -90.0 || lat > 90.0 || lng < -180.0 || lng > 180.0) return true;
         return (lat == 0.0 && lng == 0.0);
     }

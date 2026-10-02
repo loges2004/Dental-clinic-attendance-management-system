@@ -58,13 +58,9 @@ public class AttendanceService {
             throw new RuntimeException("Assigned branch is inactive or not found");
         }
 
-        // Validate Coordinates & GPS Accuracy
+        // Validate Coordinates
         if (geofenceService.isAbnormalCoordinates(request.getLatitude(), request.getLongitude())) {
             throw new IllegalArgumentException("Invalid GPS coordinates detected");
-        }
-
-        if (!geofenceService.isAccuracyValid(request.getAccuracy(), branch.getMaxGpsAccuracyMeters())) {
-            throw new IllegalArgumentException("Location accuracy is too low (" + request.getAccuracy() + "m). Please try again with better GPS signal.");
         }
 
         double distanceMeters = geofenceService.calculateDistanceMeters(
@@ -74,7 +70,7 @@ public class AttendanceService {
             branch.getLongitude().doubleValue()
         );
 
-        if (!geofenceService.isWithinGeofence(distanceMeters, branch.getAllowedRadiusMeters())) {
+        if (!geofenceService.isWithinGeofenceAdaptive(distanceMeters, branch.getAllowedRadiusMeters(), request.getAccuracy())) {
             throw new IllegalStateException(String.format("You are outside the allowed branch location. Distance: %.1fm (Allowed: %.1fm)",
                 distanceMeters, branch.getAllowedRadiusMeters().doubleValue()));
         }
@@ -82,6 +78,7 @@ public class AttendanceService {
         LocalDate today = LocalDate.now(CLINIC_ZONE);
         OffsetDateTime nowServer = OffsetDateTime.now(CLINIC_ZONE);
         LocalTime currentTime = nowServer.toLocalTime();
+
 
         Optional<Attendance> existingOpt = attendanceRepository.findByEmployeeIdAndAttendanceDate(employee.getId(), today);
 
@@ -200,10 +197,6 @@ public class AttendanceService {
             throw new IllegalArgumentException("Invalid GPS coordinates detected");
         }
 
-        if (!geofenceService.isAccuracyValid(request.getAccuracy(), branch.getMaxGpsAccuracyMeters())) {
-            throw new IllegalArgumentException("Location accuracy is too low. Please try again with better GPS signal.");
-        }
-
         double distanceMeters = geofenceService.calculateDistanceMeters(
             request.getLatitude().doubleValue(),
             request.getLongitude().doubleValue(),
@@ -211,9 +204,10 @@ public class AttendanceService {
             branch.getLongitude().doubleValue()
         );
 
-        if (!geofenceService.isWithinGeofence(distanceMeters, branch.getAllowedRadiusMeters())) {
+        if (!geofenceService.isWithinGeofenceAdaptive(distanceMeters, branch.getAllowedRadiusMeters(), request.getAccuracy())) {
             throw new IllegalStateException(String.format("You are outside the allowed branch location for check-out. Distance: %.1fm", distanceMeters));
         }
+
 
         OffsetDateTime nowServer = OffsetDateTime.now(CLINIC_ZONE);
         LocalTime currentTime = nowServer.toLocalTime();

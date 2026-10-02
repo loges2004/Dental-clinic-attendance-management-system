@@ -91,10 +91,10 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen, onMobileCl
         {/* Logo */}
         <div className="sidebar-logo">
           <div className="sidebar-logo-icon" style={{ background: '#ffffff', padding: '3px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <img src="/logo.png" alt="V3 Dental" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            <img src="/logo.png" alt="V3 Dental Clinic" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </div>
           <div className="sidebar-logo-text">
-            <h2>V3 Dental</h2>
+            <h2>V3 Dental Clinic</h2>
             <span>{user?.branchName || 'All Branches'}</span>
           </div>
           <button

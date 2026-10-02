@@ -43,7 +43,7 @@ export default function LoginPage() {
         <div style={{ textAlign:'center', marginBottom:'2rem' }}>
           <div style={{ display:'flex', justifyContent:'center', marginBottom:'1rem' }}>
             <div style={{ width:72, height:72, background:'#ffffff', borderRadius:18, padding:6, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 0 30px rgba(13,148,136,0.40)' }}>
-              <img src="/logo.png" alt="V3 Dental" style={{ width:'100%', height:'100%', objectFit:'contain' }} />
+              <img src="/logo.png" alt="V3 Dental Clinic" style={{ width:'100%', height:'100%', objectFit:'contain' }} />
             </div>
           </div>
           <h1 style={{ fontSize:'1.5rem', fontWeight:800, marginBottom:'0.25rem' }}>V3 Dental Clinic</h1>

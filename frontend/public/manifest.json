@@ -1,6 +1,6 @@
 {
-  "name": "V3 Dental Attendance",
-  "short_name": "V3 Dental",
+  "name": "V3 Dental Clinic Attendance",
+  "short_name": "V3 Dental Clinic",
   "description": "V3 Dental Clinic GPS Verified Attendance & Management System",
   "start_url": "/",
   "display": "standalone",

@@ -31,10 +31,10 @@ function AppShell() {
     return (
       <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem' }}>
         <div style={{ width: 64, height: 64, background: '#ffffff', borderRadius: 16, padding: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 40px rgba(13,148,136,0.40)' }}>
-          <img src="/logo.png" alt="V3 Dental" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          <img src="/logo.png" alt="V3 Dental Clinic" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         </div>
         <div className="spinner" />
-        <p style={{ color: 'var(--text-2)', fontSize: '0.875rem', fontWeight: 500 }}>Loading V3 Dental…</p>
+        <p style={{ color: 'var(--text-2)', fontSize: '0.875rem', fontWeight: 500 }}>Loading V3 Dental Clinic…</p>
       </div>
     );
   }
@@ -103,7 +103,7 @@ function AppShell() {
             <Menu size={24} />
           </button>
           <span style={{ fontWeight: 700, fontSize: '1rem', fontFamily: 'var(--font-heading)' }}>
-            {pageTitle[activePage] || 'V3 Dental'}
+            {pageTitle[activePage] || 'V3 Dental Clinic'}
           </span>
           <button style={{ background: 'none', border: 'none', color: 'var(--text-3)', padding: '0.25rem', cursor: 'pointer' }}>
             <Bell size={20} />

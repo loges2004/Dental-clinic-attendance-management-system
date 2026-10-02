@@ -113,7 +113,10 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen, onMobileCl
               {user?.firstName} {user?.lastName}
             </div>
             <button
-              onClick={() => setShowPasswordModal(true)}
+              onClick={() => {
+                setShowPasswordModal(true);
+                onMobileClose();
+              }}
               title="Change Password"
               className="btn btn-ghost btn-sm"
               style={{ padding: '0.2rem 0.4rem', color: 'var(--cyan)' }}
@@ -154,7 +157,10 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen, onMobileCl
         <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
           <button
             className="nav-item"
-            onClick={() => setShowPasswordModal(true)}
+            onClick={() => {
+              setShowPasswordModal(true);
+              onMobileClose();
+            }}
             style={{ width: '100%', color: 'var(--cyan)' }}
           >
             <KeyRound size={16} />

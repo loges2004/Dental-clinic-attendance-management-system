@@ -527,7 +527,7 @@ tbody td strong { color: var(--text-1); }
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.70);
   backdrop-filter: blur(4px);
-  z-index: 100;
+  z-index: 1200;
   display: flex; align-items: center; justify-content: center;
   padding: 1rem;
   animation: fade-in 0.2s ease;

@@ -50,7 +50,7 @@ export default function ChangePasswordModal({ isOpen, onClose }: Props) {
   };
 
   return (
-    <div className="modal-overlay" style={{ zIndex: 100 }}>
+    <div className="modal-overlay" style={{ zIndex: 1200 }}>
       <div className="modal" style={{ maxWidth: 440, width: '92%' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>

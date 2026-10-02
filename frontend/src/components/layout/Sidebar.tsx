@@ -82,7 +82,7 @@ export default function Sidebar({ activePage, onNavigate, mobileOpen, onMobileCl
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
-          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.60)', zIndex:49 }}
+          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.70)', zIndex:990, backdropFilter:'blur(4px)' }}
           onClick={onMobileClose}
         />
       )}

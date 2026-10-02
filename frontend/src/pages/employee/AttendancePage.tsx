@@ -102,7 +102,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
       setActionMsg({ type: 'success', text: 'Checked in successfully!' });
       refetch();
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Check-in failed';
+      const msg = err.response?.data?.message || (err.response?.status === 403 ? 'Access denied. Please sign in again.' : err.message) || 'Check-in failed';
       if (isOutsideLocationError(msg)) {
         setActionMsg({ type: 'location', text: msg });
         showAlert.error('Outside Clinic Location 📍', msg);
@@ -140,7 +140,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
       setActionMsg({ type: 'success', text: 'Checked out successfully!' });
       refetch();
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Check-out failed';
+      const msg = err.response?.data?.message || (err.response?.status === 403 ? 'Access denied. Please sign in again.' : err.message) || 'Check-out failed';
       if (isOutsideLocationError(msg)) {
         setActionMsg({ type: 'location', text: msg });
         showAlert.error('Outside Clinic Location 📍', msg);

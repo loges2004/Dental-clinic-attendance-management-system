@@ -232,7 +232,7 @@ export default function EmployeesPage() {
       {/* EDIT MODAL WITH PASSWORD RESET */}
       {editEmp && (
         <div className="modal-overlay">
-          <div className="modal" style={{ maxWidth: 520, width: '92%' }}>
+          <div className="modal" style={{ maxWidth: 520, width: '94%', maxHeight: 'calc(100dvh - 2rem)', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <div>
                 <h3 style={{ fontWeight: 800, fontSize: '1.1rem' }}>Edit: {editEmp.firstName} {editEmp.lastName}</h3>

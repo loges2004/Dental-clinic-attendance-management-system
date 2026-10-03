@@ -525,11 +525,15 @@ tbody td strong { color: var(--text-1); }
 /* ── Modal ─────────────────────────────────────── */
 .modal-overlay {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,0.70);
-  backdrop-filter: blur(4px);
+  background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(6px);
   z-index: 1200;
-  display: flex; align-items: center; justify-content: center;
-  padding: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem 0.75rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   animation: fade-in 0.2s ease;
 }
 
@@ -537,11 +541,15 @@ tbody td strong { color: var(--text-1); }
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--r-xl);
-  padding: 1.75rem;
+  padding: 1.5rem;
   width: 100%;
   max-width: 480px;
+  max-height: calc(100dvh - 2.5rem);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   box-shadow: var(--sh-md);
   animation: slide-up 0.25s var(--ease);
+  margin: auto;
 }
 
 .modal-title { font-size: 1.2rem; font-weight: 700; margin-bottom: 0.4rem; }

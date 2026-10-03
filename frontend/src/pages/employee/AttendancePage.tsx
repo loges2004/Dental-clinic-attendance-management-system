@@ -440,13 +440,25 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
           /* STATE A: CURRENTLY CHECKED IN -> ACTION IS CHECK OUT */
           <div>
             <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
-              background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)',
-              borderRadius: 'var(--r-full)', padding: '0.4rem 1rem', marginBottom: '1.2rem',
-              color: 'var(--emerald)', fontSize: '0.85rem', fontWeight: 700
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.45rem',
+              background: 'rgba(16,185,129,0.12)',
+              border: '1px solid rgba(16,185,129,0.3)',
+              borderRadius: 'var(--r-full)',
+              padding: '0.35rem 0.85rem',
+              marginBottom: '1.1rem',
+              color: 'var(--emerald)',
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              maxWidth: '100%',
+              flexWrap: 'wrap',
+              textAlign: 'center',
+              lineHeight: 1.4
             }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--emerald)', animation: 'pulse 1.5s infinite' }} />
-              ON DUTY · Session #{sessionCount} started at {formatTime(activeSession?.checkInAt)}
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--emerald)', animation: 'pulse 1.5s infinite', flexShrink: 0 }} />
+              <span>ON DUTY · Session #{sessionCount} started at {formatTime(activeSession?.checkInAt)}</span>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1.25rem' }}>
@@ -479,16 +491,46 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
               </button>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '1.5rem', color: 'var(--text-2)', fontSize: '0.85rem' }}>
-              <div>Session In: <strong style={{ color: 'var(--text-1)' }}>{formatTime(activeSession?.checkInAt)}</strong></div>
-              <div>Current Session: <strong style={{ color: 'var(--cyan)' }}>{getSessionDuration(activeSession?.checkInAt)}</strong></div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: '0.5rem',
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--r-md)',
+              padding: '0.65rem 0.85rem',
+              maxWidth: 320,
+              margin: '0 auto',
+              fontSize: '0.8rem'
+            }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Session In</div>
+                <div style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-1)', marginTop: 2 }}>{formatTime(activeSession?.checkInAt)}</div>
+              </div>
+              <div style={{ textAlign: 'center', borderLeft: '1px solid var(--border)' }}>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Current Session</div>
+                <div style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--cyan)', marginTop: 2 }}>{getSessionDuration(activeSession?.checkInAt)}</div>
+              </div>
             </div>
 
             <div style={{ textAlign: 'center', marginTop: '1rem' }}>
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
-                style={{ color: 'var(--rose)', fontSize: '0.78rem', textDecoration: 'underline' }}
+                style={{
+                  color: 'var(--rose)',
+                  fontSize: '0.78rem',
+                  whiteSpace: 'normal',
+                  lineHeight: 1.35,
+                  maxWidth: '100%',
+                  textAlign: 'center',
+                  padding: '0.45rem 0.75rem',
+                  background: 'rgba(244, 63, 94, 0.08)',
+                  border: '1px dashed rgba(244, 63, 94, 0.3)',
+                  borderRadius: 'var(--r-sm)',
+                  margin: '0.85rem auto 0',
+                  display: 'inline-block'
+                }}
                 onClick={() => {
                   const defaultTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
                   setForgotCheckoutTime(defaultTime);
@@ -504,13 +546,25 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
           <div>
             {hasEverCheckedInToday && (
               <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
-                background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.3)',
-                borderRadius: 'var(--r-full)', padding: '0.4rem 1rem', marginBottom: '1.2rem',
-                color: 'var(--amber)', fontSize: '0.85rem', fontWeight: 700
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.45rem',
+                background: 'rgba(245, 158, 11, 0.12)',
+                border: '1px solid rgba(245, 158, 11, 0.3)',
+                borderRadius: 'var(--r-full)',
+                padding: '0.35rem 0.85rem',
+                marginBottom: '1.1rem',
+                color: 'var(--amber)',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                maxWidth: '100%',
+                flexWrap: 'wrap',
+                textAlign: 'center',
+                lineHeight: 1.4
               }}>
-                <Clock size={14} />
-                Checked Out (On Break / Lunch) · Total Logged: {computeLiveTotalWork()}
+                <Clock size={14} style={{ flexShrink: 0 }} />
+                <span>Checked Out (On Break / Lunch) · Total: {computeLiveTotalWork()}</span>
               </div>
             )}
 

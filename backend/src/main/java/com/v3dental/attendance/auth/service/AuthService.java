@@ -118,7 +118,7 @@ public class AuthService {
             .designation(employee != null ? employee.getDesignation() : user.getRole().getName())
             .department(employee != null ? employee.getDepartment() : "General")
             .branchId(employee != null && employee.getBranch() != null ? employee.getBranch().getId() : null)
-            .branchName(employee != null && employee.getBranch() != null ? employee.getBranch().getName() : "All Branches")
+            .branchName(employee != null && employee.getBranch() != null ? employee.getBranch().getName() : "Both Branches")
             .branchCode(employee != null && employee.getBranch() != null ? employee.getBranch().getCode() : "ALL")
             .monthlyLeaveEntitlement(employee != null ? employee.getMonthlyLeaveEntitlement() : null)
             .build();

@@ -50,7 +50,7 @@ export interface Employee {
   phone: string | null;
   designation: string | null;
   department: string | null;
-  branch: Branch;
+  branch: Branch | null;
   joiningDate: string;
   isActive: boolean;
   monthlyLeaveEntitlement: number;

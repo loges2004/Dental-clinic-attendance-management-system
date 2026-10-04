@@ -50,8 +50,11 @@ public class EmployeeService {
         Role role = roleRepository.findByName(req.getRoleName())
             .orElseThrow(() -> new RuntimeException("Role not found: " + req.getRoleName()));
 
-        Branch branch = branchRepository.findById(req.getBranchId())
-            .orElseThrow(() -> new RuntimeException("Branch not found: " + req.getBranchId()));
+        Branch branch = null;
+        if (req.getBranchId() != null && req.getBranchId() > 0) {
+            branch = branchRepository.findById(req.getBranchId())
+                .orElseThrow(() -> new RuntimeException("Branch not found: " + req.getBranchId()));
+        }
 
         String email = StringUtils.hasText(req.getEmail()) ? req.getEmail().trim() : null;
 
@@ -96,8 +99,12 @@ public class EmployeeService {
         }
 
         if (req.getBranchId() != null) {
-            Branch b = branchRepository.findById(req.getBranchId()).orElse(emp.getBranch());
-            emp.setBranch(b);
+            if (req.getBranchId() > 0) {
+                Branch b = branchRepository.findById(req.getBranchId()).orElse(null);
+                emp.setBranch(b);
+            } else {
+                emp.setBranch(null); // Explicitly Both Branches
+            }
         }
 
         // Update User fields if present

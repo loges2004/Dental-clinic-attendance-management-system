@@ -4,6 +4,7 @@ import com.v3dental.attendance.attendance.Attendance;
 import com.v3dental.attendance.attendance.AttendanceRepository;
 import com.v3dental.attendance.audit.AuditService;
 import com.v3dental.attendance.branch.Branch;
+import com.v3dental.attendance.branch.BranchRepository;
 import com.v3dental.attendance.employee.Employee;
 import com.v3dental.attendance.employee.EmployeeRepository;
 import com.v3dental.attendance.shift.Shift;
@@ -30,6 +31,7 @@ public class AttendanceRegularizationService {
     private final AttendanceRepository attendanceRepository;
     private final EmployeeRepository employeeRepository;
     private final ShiftRepository shiftRepository;
+    private final BranchRepository branchRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
 
@@ -82,7 +84,9 @@ public class AttendanceRegularizationService {
         }
 
         Employee employee = req.getEmployee();
-        Branch branch = employee.getBranch();
+        final Branch branch = employee.getBranch() != null
+            ? employee.getBranch()
+            : branchRepository.findByIsActiveTrue().stream().findFirst().orElse(null);
         LocalDate date = req.getAttendanceDate();
 
         Optional<Attendance> existingOpt = attendanceRepository.findByEmployeeIdAndAttendanceDate(employee.getId(), date);
@@ -92,7 +96,7 @@ public class AttendanceRegularizationService {
             .attendanceDate(date)
             .build());
 
-        List<Shift> shifts = shiftRepository.findByBranchId(branch.getId());
+        List<Shift> shifts = (branch != null) ? shiftRepository.findByBranchId(branch.getId()) : List.of();
         Shift shift = shifts.isEmpty() ? null : shifts.get(0);
         att.setShift(shift);
 
@@ -176,7 +180,9 @@ public class AttendanceRegularizationService {
     public Attendance createManualAttendance(ManualAttendanceEntryDto dto, User adminUser) {
         Employee employee = employeeRepository.findById(dto.getEmployeeId())
             .orElseThrow(() -> new RuntimeException("Employee not found with id: " + dto.getEmployeeId()));
-        Branch branch = employee.getBranch();
+        final Branch branch = employee.getBranch() != null
+            ? employee.getBranch()
+            : branchRepository.findByIsActiveTrue().stream().findFirst().orElse(null);
         LocalDate date = dto.getAttendanceDate();
 
         Optional<Attendance> existingOpt = attendanceRepository.findByEmployeeIdAndAttendanceDate(employee.getId(), date);
@@ -186,7 +192,7 @@ public class AttendanceRegularizationService {
             .attendanceDate(date)
             .build());
 
-        List<Shift> shifts = shiftRepository.findByBranchId(branch.getId());
+        List<Shift> shifts = (branch != null) ? shiftRepository.findByBranchId(branch.getId()) : List.of();
         Shift shift = shifts.isEmpty() ? null : shifts.get(0);
         att.setShift(shift);
 

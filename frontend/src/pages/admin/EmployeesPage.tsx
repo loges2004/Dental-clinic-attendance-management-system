@@ -84,7 +84,7 @@ export default function EmployeesPage() {
     e.preventDefault();
     createMutation.mutate({
       ...form,
-      branchId: Number(form.branchId),
+      branchId: form.branchId === 'BOTH' || form.branchId === 'ALL' || !form.branchId ? null : Number(form.branchId),
       monthlyLeaveEntitlement: Number(form.monthlyLeaveEntitlement),
       joiningDate: form.joiningDate || null,
       email: form.email || null,
@@ -100,7 +100,7 @@ export default function EmployeesPage() {
       phone: emp.phone || '',
       designation: emp.designation || '',
       department: emp.department || '',
-      branchId: String(emp.branch?.id || ''),
+      branchId: emp.branch?.id ? String(emp.branch.id) : 'BOTH',
       monthlyLeaveEntitlement: String(emp.monthlyLeaveEntitlement),
       email: (emp as any).user?.email || '',
       password: '',
@@ -111,11 +111,15 @@ export default function EmployeesPage() {
   const handleUpdate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editEmp) return;
+    const branchVal = editForm.branchId === 'BOTH' || editForm.branchId === 'ALL'
+      ? 0
+      : (editForm.branchId ? Number(editForm.branchId) : null);
+
     updateMutation.mutate({
       id: editEmp.id,
       data: {
         ...editForm,
-        branchId: Number(editForm.branchId) || null,
+        branchId: branchVal,
         monthlyLeaveEntitlement: Number(editForm.monthlyLeaveEntitlement),
         email: editForm.email || null,
         password: editForm.password.trim() || undefined,
@@ -179,7 +183,18 @@ export default function EmployeesPage() {
             <div className="form-grid">
               {fg('Employee Code *', inp(form.employeeCode, v => setForm(f => ({ ...f, employeeCode: v })), { required: true, placeholder: 'e.g. DOC001' }))}
               {fg('Role *', (
-                <select className="form-select" value={form.roleName} onChange={e => setForm(f => ({ ...f, roleName: e.target.value }))}>
+                <select
+                  className="form-select"
+                  value={form.roleName}
+                  onChange={e => {
+                    const newRole = e.target.value;
+                    setForm(f => ({
+                      ...f,
+                      roleName: newRole,
+                      branchId: newRole === 'ADMIN' && (!f.branchId || f.branchId === '') ? 'BOTH' : f.branchId,
+                    }));
+                  }}
+                >
                   <option value="DOCTOR">Doctor</option>
                   <option value="SISTER">Sister / Nurse</option>
                   <option value="OTHER_STAFF">Other Staff</option>
@@ -196,6 +211,7 @@ export default function EmployeesPage() {
             {fg('Assigned Branch *', (
               <select className="form-select" required value={form.branchId} onChange={e => setForm(f => ({ ...f, branchId: e.target.value }))}>
                 <option value="">-- Select Branch --</option>
+                <option value="BOTH">Both Branches (Kannappa Nagar & Saibaba Colony)</option>
                 {branches?.map(b => <option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}
               </select>
             ))}
@@ -272,7 +288,8 @@ export default function EmployeesPage() {
               {fg('Branch', (
                 <select className="form-select" value={editForm.branchId} onChange={e => setEditForm(f => ({ ...f, branchId: e.target.value }))}>
                   <option value="">-- No Change --</option>
-                  {branches?.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  <option value="BOTH">Both Branches (Kannappa Nagar & Saibaba Colony)</option>
+                  {branches?.map(b => <option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}
                 </select>
               ))}
 
@@ -336,7 +353,7 @@ export default function EmployeesPage() {
                     {!emp.isActive && <span className="badge badge-rose">Inactive</span>}
                   </div>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-3)', marginTop: '0.2rem' }}>
-                    {emp.employeeCode} · {emp.branch?.name}{emp.designation ? ` · ${emp.designation}` : ''}
+                    {emp.employeeCode} · <span style={{ color: !emp.branch ? 'var(--primary-light)' : 'inherit', fontWeight: !emp.branch ? 600 : 400 }}>{emp.branch ? `${emp.branch.name} (${emp.branch.code})` : 'Both Branches (Kannappa Nagar & Saibaba Colony)'}</span>{emp.designation ? ` · ${emp.designation}` : ''}
                   </div>
                   {(emp as any).user?.email && (
                     <div style={{ fontSize: '0.78rem', color: 'var(--text-3)', marginTop: '0.1rem' }}>

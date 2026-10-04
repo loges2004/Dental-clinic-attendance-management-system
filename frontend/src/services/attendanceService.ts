@@ -82,4 +82,9 @@ export const attendanceService = {
     });
     return res.data;
   },
+
+  async correctAttendance(id: number, data: import('../types').AttendanceCorrectionDto): Promise<Attendance> {
+    const res = await api.put<Attendance>(`/attendance/${id}/correct`, data);
+    return res.data;
+  },
 };

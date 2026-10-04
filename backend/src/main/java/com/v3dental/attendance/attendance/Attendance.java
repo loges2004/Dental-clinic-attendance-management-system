@@ -82,6 +82,17 @@ public class Attendance {
     @Builder.Default
     private Boolean isEarlyCheckout = false;
 
+    @Column(name = "is_auto_checkout", nullable = false)
+    @Builder.Default
+    private Boolean isAutoCheckout = false;
+
+    @Column(name = "is_suspicious", nullable = false)
+    @Builder.Default
+    private Boolean isSuspicious = false;
+
+    @Column(name = "suspicious_reason", length = 255)
+    private String suspiciousReason;
+
     @Column(columnDefinition = "TEXT")
     private String notes;
 
@@ -115,6 +126,8 @@ public class Attendance {
         }
         if (isLate == null) isLate = false;
         if (isEarlyCheckout == null) isEarlyCheckout = false;
+        if (isAutoCheckout == null) isAutoCheckout = false;
+        if (isSuspicious == null) isSuspicious = false;
         if (totalWorkMinutes == null) totalWorkMinutes = 0;
         if (currentSessionStatus == null) currentSessionStatus = "CHECKED_IN";
     }
@@ -124,6 +137,8 @@ public class Attendance {
         updatedAt = OffsetDateTime.now();
         if (isLate == null) isLate = false;
         if (isEarlyCheckout == null) isEarlyCheckout = false;
+        if (isAutoCheckout == null) isAutoCheckout = false;
+        if (isSuspicious == null) isSuspicious = false;
         if (totalWorkMinutes == null) totalWorkMinutes = 0;
         if (currentSessionStatus == null) currentSessionStatus = "CHECKED_IN";
     }

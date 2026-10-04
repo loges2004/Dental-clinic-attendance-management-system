@@ -65,6 +65,16 @@ public class AttendancePunchSession {
     @Builder.Default
     private Integer durationMinutes = 0;
 
+    @Column(name = "is_auto_checkout", nullable = false)
+    @Builder.Default
+    private Boolean isAutoCheckout = false;
+
+    @Column(name = "is_suspicious", nullable = false)
+    @Builder.Default
+    private Boolean isSuspicious = false;
+
+    @Column(name = "suspicious_reason", length = 255)
+    private String suspiciousReason;
 
     @Column(columnDefinition = "TEXT")
     private String notes;
@@ -77,5 +87,7 @@ public class AttendancePunchSession {
         if (createdAt == null) {
             createdAt = OffsetDateTime.now();
         }
+        if (isAutoCheckout == null) isAutoCheckout = false;
+        if (isSuspicious == null) isSuspicious = false;
     }
 }

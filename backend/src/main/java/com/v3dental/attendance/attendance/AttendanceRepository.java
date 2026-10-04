@@ -15,6 +15,10 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
     
     List<Attendance> findByBranchIdAndAttendanceDate(Long branchId, LocalDate attendanceDate);
 
+    List<Attendance> findByAttendanceDateAndCurrentSessionStatus(LocalDate attendanceDate, String currentSessionStatus);
+
+    List<Attendance> findByAttendanceDateAndIsSuspiciousTrue(LocalDate attendanceDate);
+
     List<Attendance> findByEmployeeIdAndAttendanceDateBetweenOrderByAttendanceDateDesc(Long employeeId, LocalDate startDate, LocalDate endDate);
 
     List<Attendance> findByAttendanceDateBetweenOrderByAttendanceDateDesc(LocalDate startDate, LocalDate endDate);

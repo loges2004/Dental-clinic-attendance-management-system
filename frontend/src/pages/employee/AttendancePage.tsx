@@ -6,7 +6,8 @@ import { useAuth } from '../../context/AuthContext';
 import { showAlert } from '../../utils/alerts';
 import {
   MapPin, WifiOff, RefreshCw, Navigation,
-  LogIn, LogOut, Clock, ClipboardList, History, X
+  LogIn, LogOut, Clock, ClipboardList, History, X,
+  AlertTriangle
 } from 'lucide-react';
 
 import RegularizationRequestModal from '../../components/attendance/RegularizationRequestModal';
@@ -23,6 +24,17 @@ function isOutsideLocationError(msg: string): boolean {
   return /outside\s+the\s+allowed|outside\s+branch|outside\s+clinic|geofence|accuracy\s+is\s+too\s+low/i.test(msg);
 }
 
+function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 export default function AttendancePage({ onNavigate }: { onNavigate: (p: string) => void }) {
   const { user } = useAuth();
   const [gps, setGps] = useState<GPSState>({ latitude: null, longitude: null, accuracy: null, status: 'idle' });
@@ -30,6 +42,8 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error' | 'location'; text: string } | null>(null);
   const [showRegModal, setShowRegModal] = useState(false);
   const [showForgotCheckoutModal, setShowForgotCheckoutModal] = useState(false);
+  const [showLongSessionModal, setShowLongSessionModal] = useState(false);
+  const [hasPromptedDeparture, setHasPromptedDeparture] = useState(false);
   const [forgotCheckoutTime, setForgotCheckoutTime] = useState('');
   const [forgotCheckoutReason, setForgotCheckoutReason] = useState('');
   const [forgotCheckoutLoading, setForgotCheckoutLoading] = useState(false);
@@ -117,6 +131,31 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
   // Find active open session if checked in
   const activeSession = isCurrentlyIn ? sessions[sessions.length - 1] : null;
 
+  // Proactive Departure Detection: If checked in and phone detects user is outside clinic (> radius + 200m)
+  useEffect(() => {
+    if (!isCurrentlyIn || !gps.latitude || !gps.longitude || gps.status !== 'ready') return;
+    const branch = att?.branch;
+    if (!branch?.latitude || !branch?.longitude) return;
+
+    const dist = calculateDistanceMeters(
+      gps.latitude,
+      gps.longitude,
+      Number(branch.latitude),
+      Number(branch.longitude)
+    );
+
+    const allowedRadius = branch.allowedRadiusMeters || 100;
+    // When employee is clearly away from clinic (> radius + 200m) with reliable GPS precision
+    if (dist > allowedRadius + 200 && (!gps.accuracy || gps.accuracy < 250)) {
+      if (!hasPromptedDeparture && !showForgotCheckoutModal && !showLongSessionModal) {
+        setHasPromptedDeparture(true);
+        const timeNow = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        setForgotCheckoutTime(timeNow);
+        setShowForgotCheckoutModal(true);
+      }
+    }
+  }, [gps.latitude, gps.longitude, gps.status, gps.accuracy, isCurrentlyIn, att?.branch, hasPromptedDeparture, showForgotCheckoutModal, showLongSessionModal]);
+
   const handleCheckIn = async () => {
     if (!gps.latitude || !gps.longitude) {
       startGpsWatcher();
@@ -154,19 +193,12 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
     }
   };
 
-  const handleCheckOut = async () => {
+  const executeCheckOut = async () => {
     if (!gps.latitude || !gps.longitude) {
       startGpsWatcher();
       showAlert.warning('Acquiring Location', 'Waiting for GPS signal. Please try again in a few moments.');
       return;
     }
-
-    const confirmed = await showAlert.confirm(
-      'Confirm Check-Out',
-      'Are you checking out for Lunch / Break or Shift End?',
-      'Yes, Check Out'
-    );
-    if (!confirmed) return;
 
     setActionLoading(true);
     setActionMsg(null);
@@ -194,6 +226,32 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handleCheckOut = async () => {
+    if (!gps.latitude || !gps.longitude) {
+      startGpsWatcher();
+      showAlert.warning('Acquiring Location', 'Waiting for GPS signal. Please try again in a few moments.');
+      return;
+    }
+
+    const sessionStartMs = activeSession?.checkInAt ? new Date(activeSession.checkInAt).getTime() : 0;
+    const sessionMins = sessionStartMs ? Math.max(0, Math.floor((now.getTime() - sessionStartMs) / 60000)) : 0;
+
+    // Detect if session is excessively long (>= 4.5 hours / 270 mins)
+    if (sessionMins >= 270) {
+      setShowLongSessionModal(true);
+      return;
+    }
+
+    const confirmed = await showAlert.confirm(
+      'Confirm Check-Out',
+      'Are you checking out for Lunch / Break or Shift End?',
+      'Yes, Check Out'
+    );
+    if (!confirmed) return;
+
+    await executeCheckOut();
   };
 
   const handleForgotCheckoutSubmit = async (e: React.FormEvent) => {
@@ -834,6 +892,95 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Smart Long Session Check-Out Warning Modal */}
+      {showLongSessionModal && (
+        <div className="modal-overlay" style={{ zIndex: 1200 }} onClick={() => setShowLongSessionModal(false)}>
+          <div className="modal" style={{ maxWidth: 460, width: '94%' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <div style={{
+                  width: 42, height: 42, borderRadius: '50%',
+                  background: 'rgba(245, 158, 11, 0.15)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: 'var(--amber)'
+                }}>
+                  <AlertTriangle size={22} />
+                </div>
+                <div>
+                  <h3 style={{ fontWeight: 800, fontSize: '1.1rem' }}>Long Session Detected</h3>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-3)' }}>Please verify your check-out departure time</p>
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowLongSessionModal(false)}><X size={16} /></button>
+            </div>
+
+            <div style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)', borderRadius: 'var(--r-md)', padding: '1rem', marginBottom: '1.2rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '0.35rem' }}>
+                <span style={{ color: 'var(--text-2)' }}>Session Check-In:</span>
+                <strong style={{ color: 'var(--emerald)' }}>{formatTime(activeSession?.checkInAt)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '0.35rem' }}>
+                <span style={{ color: 'var(--text-2)' }}>Current Time:</span>
+                <strong style={{ color: 'var(--cyan)' }}>{now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.4rem', marginTop: '0.4rem' }}>
+                <span style={{ color: 'var(--text-2)' }}>Elapsed Duration:</span>
+                <strong style={{ color: '#fbbf24', fontWeight: 800 }}>
+                  {activeSession?.checkInAt ? `${Math.floor((now.getTime() - new Date(activeSession.checkInAt).getTime()) / 3600000)}h ${Math.floor(((now.getTime() - new Date(activeSession.checkInAt).getTime()) % 3600000) / 60000)}m` : ''}
+                </strong>
+              </div>
+            </div>
+
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-2)', lineHeight: 1.5, marginBottom: '1.2rem' }}>
+              Did you work continuously at the clinic until now, or did you leave earlier (e.g. at 10:20 AM, morning shift end, or for lunch)?
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{
+                  background: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)',
+                  padding: '0.85rem 1rem',
+                  fontSize: '0.92rem',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+                onClick={() => {
+                  setShowLongSessionModal(false);
+                  const defaultTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                  setForgotCheckoutTime(defaultTime);
+                  setShowForgotCheckoutModal(true);
+                }}
+              >
+                <Clock size={16} />
+                I Left Earlier · Enter Departure Time
+              </button>
+
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{
+                  color: 'var(--text-2)',
+                  fontSize: '0.85rem',
+                  padding: '0.65rem 1rem',
+                  border: '1px solid var(--border)',
+                }}
+                onClick={async () => {
+                  setShowLongSessionModal(false);
+                  await executeCheckOut();
+                }}
+              >
+                I Worked Continuously Until Now ({now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })})
+              </button>
+            </div>
           </div>
         </div>
       )}

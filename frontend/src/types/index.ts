@@ -80,6 +80,9 @@ export interface AttendancePunchSession {
   checkOutDistance: number | null;
   durationMinutes: number;
   notes: string | null;
+  isAutoCheckout?: boolean;
+  isSuspicious?: boolean;
+  suspiciousReason?: string | null;
 }
 
 export interface Attendance {
@@ -101,10 +104,22 @@ export interface Attendance {
   status: 'PRESENT' | 'LATE' | 'EARLY_CHECKOUT' | 'ABSENT' | 'HALF_DAY' | 'ON_LEAVE';
   isLate: boolean;
   isEarlyCheckout: boolean;
+  isAutoCheckout?: boolean;
+  isSuspicious?: boolean;
+  suspiciousReason?: string | null;
   notes: string | null;
   totalWorkMinutes: number;
   currentSessionStatus: 'CHECKED_IN' | 'CHECKED_OUT';
   sessions?: AttendancePunchSession[];
+}
+
+export interface AttendanceCorrectionDto {
+  checkInAt?: string;
+  checkOutAt?: string;
+  status?: string;
+  reason: string;
+  sessionId?: number;
+  totalWorkMinutes?: number;
 }
 
 

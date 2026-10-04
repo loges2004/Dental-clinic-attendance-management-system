@@ -9,4 +9,6 @@ public class AttendanceCorrectionRequest {
     private OffsetDateTime checkOutAt;
     private String status;
     private String reason;
+    private Long sessionId;
+    private Integer totalWorkMinutes;
 }

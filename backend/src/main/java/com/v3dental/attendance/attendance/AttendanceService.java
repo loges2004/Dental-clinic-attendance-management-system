@@ -287,6 +287,9 @@ public class AttendanceService {
             }
         }
 
+        boolean isSuspicious = false;
+        String suspiciousReason = null;
+
         if (openSession != null) {
             openSession.setCheckOutAt(nowServer);
             openSession.setCheckOutLatitude(request.getLatitude());
@@ -296,6 +299,13 @@ public class AttendanceService {
 
             long sessionMins = Duration.between(openSession.getCheckInAt(), nowServer).toMinutes();
             openSession.setDurationMinutes((int) Math.max(0, sessionMins));
+
+            if (sessionMins > 840) { // Over 14 hours (forgotten overnight check-out)
+                isSuspicious = true;
+                suspiciousReason = "Session exceeded 14 hours (" + (sessionMins / 60) + "h " + (sessionMins % 60) + "m) - Possible forgotten overnight checkout";
+                openSession.setIsSuspicious(true);
+                openSession.setSuspiciousReason(suspiciousReason);
+            }
         }
 
         // Calculate cumulative total minutes across all sessions
@@ -314,6 +324,10 @@ public class AttendanceService {
         attendance.setIsEarlyCheckout(isEarly);
         attendance.setTotalWorkMinutes(totalMins);
         attendance.setCurrentSessionStatus("CHECKED_OUT");
+        if (isSuspicious) {
+            attendance.setIsSuspicious(true);
+            attendance.setSuspiciousReason(suspiciousReason);
+        }
 
         if (request.getNotes() != null && !request.getNotes().isBlank()) {
             attendance.setNotes((attendance.getNotes() != null ? attendance.getNotes() + " | " : "") + request.getNotes());
@@ -321,7 +335,7 @@ public class AttendanceService {
 
         Attendance saved = attendanceRepository.save(attendance);
         auditService.logAction(user, "CHECK_OUT", "ATTENDANCE", saved.getId(),
-            "Checked out at " + branch.getName() + " (Session completed. Total working hours today: " + (totalMins / 60) + "h " + (totalMins % 60) + "m)");
+            "Checked out at " + branch.getName() + " (Session completed. Total working hours today: " + (totalMins / 60) + "h " + (totalMins % 60) + "m)" + (isSuspicious ? " [FLAGGED: " + suspiciousReason + "]" : ""));
         return saved;
     }
 
@@ -365,6 +379,9 @@ public class AttendanceService {
             }
         }
 
+        boolean isSuspicious = false;
+        String suspiciousReason = null;
+
         if (openSession != null) {
             if (checkOutDateTime.isBefore(openSession.getCheckInAt())) {
                 checkOutDateTime = openSession.getCheckInAt().plusMinutes(1);
@@ -376,6 +393,13 @@ public class AttendanceService {
 
             long sessionMins = Duration.between(openSession.getCheckInAt(), checkOutDateTime).toMinutes();
             openSession.setDurationMinutes((int) Math.max(0, sessionMins));
+
+            if (sessionMins > 840) {
+                isSuspicious = true;
+                suspiciousReason = "Session duration > 14h (" + (sessionMins / 60) + "h " + (sessionMins % 60) + "m)";
+                openSession.setIsSuspicious(true);
+                openSession.setSuspiciousReason(suspiciousReason);
+            }
 
             String note = openSession.getNotes() != null ? openSession.getNotes() : "";
             openSession.setNotes(note + " [Remote Check-Out at " + departureTime.toString() + "]");
@@ -394,6 +418,10 @@ public class AttendanceService {
         attendance.setCheckOutAccuracy(request.getAccuracy());
         attendance.setTotalWorkMinutes(totalMins);
         attendance.setCurrentSessionStatus("CHECKED_OUT");
+        if (isSuspicious) {
+            attendance.setIsSuspicious(true);
+            attendance.setSuspiciousReason(suspiciousReason);
+        }
 
         String remoteTag = "[Remote Check-Out: Left clinic at " + departureTime.toString() + (StringUtils.hasText(request.getReason()) ? " | " + request.getReason() : "") + "]";
         attendance.setNotes((attendance.getNotes() != null ? attendance.getNotes() + " | " : "") + remoteTag);
@@ -402,6 +430,150 @@ public class AttendanceService {
         auditService.logAction(user, "REMOTE_CHECK_OUT", "ATTENDANCE", saved.getId(),
             "Completed Remote Check-Out. Left clinic at " + departureTime.toString() + ". Total Work: " + (totalMins / 60) + "h " + (totalMins % 60) + "m");
         return saved;
+    }
+
+    @Transactional
+    public void autoCheckoutExpiredSessions() {
+        LocalDate today = LocalDate.now(CLINIC_ZONE);
+        OffsetDateTime nowServer = OffsetDateTime.now(CLINIC_ZONE);
+        LocalTime currentTime = nowServer.toLocalTime();
+
+        // Clinic is open from morning until late night (up to 10:30 PM).
+        // DO NOT interrupt staff working late hours or overtime (e.g. 9:30 AM to 10:00 PM).
+        // Only run auto-checkout after night closing time (after 23:00 / 11:00 PM) if someone forgot to punch out before going home.
+        if (currentTime.isBefore(LocalTime.of(23, 0))) {
+            return;
+        }
+
+        List<Attendance> openAttendances = attendanceRepository.findByAttendanceDateAndCurrentSessionStatus(today, "CHECKED_IN");
+        for (Attendance attendance : openAttendances) {
+            try {
+                List<AttendancePunchSession> sessions = attendance.getSessions();
+                AttendancePunchSession openSession = null;
+                if (sessions != null && !sessions.isEmpty()) {
+                    for (int i = sessions.size() - 1; i >= 0; i--) {
+                        if (sessions.get(i).getCheckOutAt() == null) {
+                            openSession = sessions.get(i);
+                            break;
+                        }
+                    }
+                }
+                if (openSession == null) {
+                    attendance.setCurrentSessionStatus("CHECKED_OUT");
+                    attendanceRepository.save(attendance);
+                    continue;
+                }
+
+                // Auto-close at night: default clinic night departure 22:00 (10:00 PM)
+                LocalTime autoOutTime = LocalTime.of(22, 0);
+                if (attendance.getShift() != null && attendance.getShift().getEndTime().isAfter(LocalTime.of(18, 0))) {
+                    autoOutTime = attendance.getShift().getEndTime();
+                }
+
+                OffsetDateTime autoCheckoutAt = today.atTime(autoOutTime).atZone(CLINIC_ZONE).toOffsetDateTime();
+                String reason = "Night Auto-Checkout: Unclosed session past 11:00 PM (auto-closed at " + autoOutTime + ")";
+                boolean shouldAutoCheckout = true;
+
+                if (shouldAutoCheckout && autoCheckoutAt != null) {
+                    if (autoCheckoutAt.isBefore(openSession.getCheckInAt())) {
+                        autoCheckoutAt = openSession.getCheckInAt().plusMinutes(30);
+                    }
+                    if (autoCheckoutAt.isAfter(nowServer)) {
+                        autoCheckoutAt = nowServer;
+                    }
+
+                    openSession.setCheckOutAt(autoCheckoutAt);
+                    long sessionDuration = Duration.between(openSession.getCheckInAt(), autoCheckoutAt).toMinutes();
+                    openSession.setDurationMinutes((int) Math.max(0, sessionDuration));
+                    openSession.setIsAutoCheckout(true);
+                    openSession.setIsSuspicious(true);
+                    openSession.setSuspiciousReason(reason);
+                    String curNotes = openSession.getNotes() != null ? openSession.getNotes() + " | " : "";
+                    openSession.setNotes(curNotes + "[" + reason + "]");
+
+                    int totalMins = sessions.stream()
+                        .mapToInt(s -> s.getDurationMinutes() != null ? s.getDurationMinutes() : 0)
+                        .sum();
+
+                    attendance.setCheckOutAt(autoCheckoutAt);
+                    attendance.setCurrentSessionStatus("CHECKED_OUT");
+                    attendance.setTotalWorkMinutes(totalMins);
+                    attendance.setIsAutoCheckout(true);
+                    attendance.setIsSuspicious(true);
+                    attendance.setSuspiciousReason(reason);
+                    String attNotes = attendance.getNotes() != null ? attendance.getNotes() + " | " : "";
+                    attendance.setNotes(attNotes + "[" + reason + "]");
+
+                    Attendance saved = attendanceRepository.save(attendance);
+                    auditService.logAction(
+                        attendance.getEmployee().getUser(),
+                        "AUTO_CHECK_OUT",
+                        "ATTENDANCE",
+                        saved.getId(),
+                        reason + ". Saved total: " + (totalMins / 60) + "h " + (totalMins % 60) + "m"
+                    );
+                }
+            } catch (Exception e) {
+                System.err.println("Error auto-checking out attendance " + attendance.getId() + ": " + e.getMessage());
+            }
+        }
+    }
+
+    @Transactional
+    public void autoCheckoutEndOfDay() {
+        LocalDate today = LocalDate.now(CLINIC_ZONE);
+        OffsetDateTime nowServer = OffsetDateTime.now(CLINIC_ZONE);
+        List<Attendance> openAttendances = attendanceRepository.findByAttendanceDateAndCurrentSessionStatus(today, "CHECKED_IN");
+        for (Attendance attendance : openAttendances) {
+            try {
+                List<AttendancePunchSession> sessions = attendance.getSessions();
+                AttendancePunchSession openSession = null;
+                if (sessions != null && !sessions.isEmpty()) {
+                    for (int i = sessions.size() - 1; i >= 0; i--) {
+                        if (sessions.get(i).getCheckOutAt() == null) {
+                            openSession = sessions.get(i);
+                            break;
+                        }
+                    }
+                }
+                OffsetDateTime closeTime = (attendance.getShift() != null)
+                    ? today.atTime(attendance.getShift().getEndTime()).atZone(CLINIC_ZONE).toOffsetDateTime()
+                    : (openSession != null ? openSession.getCheckInAt().plusHours(8) : nowServer);
+
+                if (closeTime.isAfter(nowServer)) {
+                    closeTime = nowServer;
+                }
+                String reason = "End-of-day auto checkout (forgot to checkout)";
+
+                if (openSession != null) {
+                    if (closeTime.isBefore(openSession.getCheckInAt())) {
+                        closeTime = openSession.getCheckInAt().plusMinutes(15);
+                    }
+                    openSession.setCheckOutAt(closeTime);
+                    long sMins = Duration.between(openSession.getCheckInAt(), closeTime).toMinutes();
+                    openSession.setDurationMinutes((int) Math.max(0, sMins));
+                    openSession.setIsAutoCheckout(true);
+                    openSession.setIsSuspicious(true);
+                    openSession.setSuspiciousReason(reason);
+                }
+
+                int totalMins = (sessions != null) ? sessions.stream()
+                    .mapToInt(s -> s.getDurationMinutes() != null ? s.getDurationMinutes() : 0)
+                    .sum() : 0;
+
+                attendance.setCheckOutAt(closeTime);
+                attendance.setCurrentSessionStatus("CHECKED_OUT");
+                attendance.setTotalWorkMinutes(totalMins);
+                attendance.setIsAutoCheckout(true);
+                attendance.setIsSuspicious(true);
+                attendance.setSuspiciousReason(reason);
+                attendance.setNotes((attendance.getNotes() != null ? attendance.getNotes() + " | " : "") + "[" + reason + "]");
+
+                attendanceRepository.save(attendance);
+            } catch (Exception e) {
+                System.err.println("Error in end-of-day auto-checkout: " + e.getMessage());
+            }
+        }
     }
 
     public Optional<Attendance> getTodayAttendance(String username) {
@@ -430,20 +602,63 @@ public class AttendanceService {
         Attendance attendance = attendanceRepository.findById(id)
             .orElseThrow(() -> new RuntimeException("Attendance record not found"));
 
-        if (req.getCheckInAt() != null) attendance.setCheckInAt(req.getCheckInAt());
-        if (req.getCheckOutAt() != null) attendance.setCheckOutAt(req.getCheckOutAt());
+        if (req.getCheckInAt() != null) {
+            attendance.setCheckInAt(req.getCheckInAt());
+            if (attendance.getSessions() != null && !attendance.getSessions().isEmpty()) {
+                attendance.getSessions().get(0).setCheckInAt(req.getCheckInAt());
+            }
+        }
+
+        if (req.getCheckOutAt() != null) {
+            attendance.setCheckOutAt(req.getCheckOutAt());
+            // Update the target or latest session
+            List<AttendancePunchSession> sessions = attendance.getSessions();
+            if (sessions != null && !sessions.isEmpty()) {
+                AttendancePunchSession targetSession = null;
+                if (req.getSessionId() != null) {
+                    targetSession = sessions.stream().filter(s -> req.getSessionId().equals(s.getId())).findFirst().orElse(null);
+                }
+                if (targetSession == null) {
+                    targetSession = sessions.get(sessions.size() - 1);
+                }
+                targetSession.setCheckOutAt(req.getCheckOutAt());
+                long sMins = Duration.between(targetSession.getCheckInAt(), req.getCheckOutAt()).toMinutes();
+                targetSession.setDurationMinutes((int) Math.max(0, sMins));
+                targetSession.setIsSuspicious(false);
+                targetSession.setSuspiciousReason(null);
+            }
+        }
+
         if (req.getStatus() != null) attendance.setStatus(req.getStatus());
         if (req.getReason() != null) {
             attendance.setNotes((attendance.getNotes() != null ? attendance.getNotes() + " | Corrected: " : "Corrected: ") + req.getReason());
         }
 
-        if (attendance.getCheckInAt() != null && attendance.getCheckOutAt() != null) {
-            long totalMins = Duration.between(attendance.getCheckInAt(), attendance.getCheckOutAt()).toMinutes();
-            attendance.setTotalWorkMinutes((int) Math.max(0, totalMins));
+        // Recalculate total work minutes
+        int calculatedMins = 0;
+        if (attendance.getSessions() != null && !attendance.getSessions().isEmpty()) {
+            calculatedMins = attendance.getSessions().stream()
+                .mapToInt(s -> s.getDurationMinutes() != null ? s.getDurationMinutes() : 0)
+                .sum();
+        } else if (attendance.getCheckInAt() != null && attendance.getCheckOutAt() != null) {
+            calculatedMins = (int) Math.max(0, Duration.between(attendance.getCheckInAt(), attendance.getCheckOutAt()).toMinutes());
+        }
+
+        if (req.getTotalWorkMinutes() != null && req.getTotalWorkMinutes() >= 0) {
+            attendance.setTotalWorkMinutes(req.getTotalWorkMinutes());
+        } else {
+            attendance.setTotalWorkMinutes(calculatedMins);
+        }
+
+        // Once corrected by admin, clear the suspicious flag and mark session resolved
+        attendance.setIsSuspicious(false);
+        attendance.setSuspiciousReason(null);
+        if (attendance.getCheckOutAt() != null) {
+            attendance.setCurrentSessionStatus("CHECKED_OUT");
         }
 
         Attendance saved = attendanceRepository.save(attendance);
-        auditService.logAction(adminUser, "ATTENDANCE_CORRECTED", "ATTENDANCE", saved.getId(), "Corrected attendance record. Reason: " + req.getReason());
+        auditService.logAction(adminUser, "ATTENDANCE_CORRECTED", "ATTENDANCE", saved.getId(), "Corrected attendance record. Total work: " + (attendance.getTotalWorkMinutes() / 60) + "h " + (attendance.getTotalWorkMinutes() % 60) + "m. Reason: " + req.getReason());
         return saved;
     }
 }

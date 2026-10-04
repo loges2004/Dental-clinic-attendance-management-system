@@ -5,9 +5,11 @@ import { branchService } from '../../services/branchService';
 import { regularizationService } from '../../services/regularizationService';
 import { showAlert } from '../../utils/alerts';
 import ManualAttendanceModal from '../../components/attendance/ManualAttendanceModal';
+import CorrectAttendanceModal from '../../components/attendance/CorrectAttendanceModal';
 import {
   CalendarCheck, Filter, Plus, Clock, CheckCircle2,
-  XCircle, AlertCircle, ChevronDown, ChevronUp, Timer
+  XCircle, AlertCircle, ChevronDown, ChevronUp, Timer,
+  AlertTriangle, Edit3
 } from 'lucide-react';
 import type { AttendanceRegularizationRequest, Attendance } from '../../types';
 
@@ -39,7 +41,8 @@ export default function AttendanceTodayPage() {
   const [branchId, setBranchId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'live' | 'requests'>('live');
   const [showManualModal, setShowManualModal] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'LATE' | 'IN' | 'OUT'>('ALL');
+  const [correctingRecord, setCorrectingRecord] = useState<Attendance | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'LATE' | 'IN' | 'OUT' | 'FLAGGED'>('ALL');
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
 
   // Live Attendance
@@ -52,10 +55,13 @@ export default function AttendanceTodayPage() {
     refetchInterval: 15000,
   });
 
+  const flaggedCount = attendance?.filter(a => a.isSuspicious || a.isAutoCheckout).length || 0;
+
   const filteredAttendance = attendance?.filter(a => {
     if (statusFilter === 'LATE') return a.isLate;
     if (statusFilter === 'IN') return a.currentSessionStatus === 'CHECKED_IN';
     if (statusFilter === 'OUT') return a.currentSessionStatus === 'CHECKED_OUT';
+    if (statusFilter === 'FLAGGED') return a.isSuspicious || a.isAutoCheckout;
     return true;
   }) || [];
 
@@ -292,6 +298,23 @@ export default function AttendanceTodayPage() {
               >
                 Checked Out ({checkedOutStaff})
               </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setStatusFilter('FLAGGED')}
+                style={{
+                  background: statusFilter === 'FLAGGED' ? '#f59e0b' : 'rgba(245,158,11,0.15)',
+                  color: statusFilter === 'FLAGGED' ? '#000' : '#fbbf24',
+                  fontWeight: 700,
+                  fontSize: '0.8rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+              >
+                <AlertTriangle size={13} />
+                <span>Flagged / Long ({flaggedCount})</span>
+              </button>
             </div>
           </div>
 
@@ -311,6 +334,7 @@ export default function AttendanceTodayPage() {
                 const sessions = a.sessions || [];
                 const isExpanded = expandedRow === a.id;
                 const hoursFormatted = formatMinutes(a.totalWorkMinutes);
+                const isSuspicious = a.isSuspicious || a.isAutoCheckout;
 
                 return (
                   <div
@@ -318,7 +342,7 @@ export default function AttendanceTodayPage() {
                     className="glass-card"
                     style={{
                       padding: '1rem 1.25rem',
-                      borderLeft: isCurrentlyIn ? '4px solid var(--emerald)' : '4px solid var(--border)',
+                      borderLeft: isSuspicious ? '4px solid #f59e0b' : isCurrentlyIn ? '4px solid var(--emerald)' : '4px solid var(--border)',
                       transition: 'all 0.2s',
                     }}
                   >
@@ -342,30 +366,54 @@ export default function AttendanceTodayPage() {
                             {a.employee.user?.role?.name || a.employee.designation || 'Staff'}
                           </span>
                           {statusBadge(a.status, a.isLate)}
+                          {isSuspicious && (
+                            <span
+                              className="badge"
+                              style={{
+                                background: 'rgba(245, 158, 11, 0.15)',
+                                color: '#fbbf24',
+                                border: '1px solid rgba(245, 158, 11, 0.4)',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                              }}
+                            >
+                              <AlertTriangle size={12} />
+                              {a.isAutoCheckout ? 'Auto-Checked Out' : 'Review Needed'}
+                            </span>
+                          )}
                         </div>
 
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-3)', marginTop: '0.2rem' }}>
                           {a.branch?.name || 'Clinic'} · {a.shift?.name || 'Standard Shift'}
                           {a.notes && <span style={{ color: 'var(--cyan)', marginLeft: '0.4rem' }}>({a.notes})</span>}
                         </div>
+
+                        {a.suspiciousReason && (
+                          <div style={{ fontSize: '0.75rem', color: '#fbbf24', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span>⚠️ {a.suspiciousReason}</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Right: Total Clinic Hours Badge */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                         <div
                           style={{
-                            background: 'rgba(6, 182, 212, 0.12)',
-                            border: '1px solid rgba(6, 182, 212, 0.3)',
+                            background: isSuspicious ? 'rgba(245, 158, 11, 0.12)' : 'rgba(6, 182, 212, 0.12)',
+                            border: isSuspicious ? '1px solid rgba(245, 158, 11, 0.35)' : '1px solid rgba(6, 182, 212, 0.3)',
                             padding: '0.4rem 0.85rem',
                             borderRadius: 'var(--r-md)',
                             textAlign: 'right',
                           }}
                         >
-                          <div style={{ fontSize: '0.68rem', color: 'var(--cyan)', fontWeight: 700, textTransform: 'uppercase' }}>
+                          <div style={{ fontSize: '0.68rem', color: isSuspicious ? '#fbbf24' : 'var(--cyan)', fontWeight: 700, textTransform: 'uppercase' }}>
                             Total Worked Today
                           </div>
                           <div style={{ fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
-                            <Timer size={14} color="var(--cyan)" />
+                            <Timer size={14} color={isSuspicious ? '#fbbf24' : 'var(--cyan)'} />
                             {hoursFormatted}
                           </div>
                         </div>
@@ -415,26 +463,46 @@ export default function AttendanceTodayPage() {
                         )}
                       </div>
 
-                      {sessions.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <button
                           type="button"
-                          onClick={() => setExpandedRow(isExpanded ? null : a.id)}
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => setCorrectingRecord(a)}
                           style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--primary)',
-                            fontSize: '0.78rem',
-                            fontWeight: 600,
-                            cursor: 'pointer',
+                            color: 'var(--cyan)',
+                            borderColor: 'rgba(6, 182, 212, 0.4)',
+                            fontSize: '0.76rem',
+                            padding: '0.2rem 0.65rem',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 3,
+                            gap: 4,
                           }}
+                          title="Adjust punch times or correct forgotten checkout"
                         >
-                          {sessions.length} {sessions.length === 1 ? 'Session' : 'Sessions'} (Breakdown)
-                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          <Edit3 size={13} /> Correct Hours
                         </button>
-                      )}
+
+                        {sessions.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setExpandedRow(isExpanded ? null : a.id)}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: 'var(--primary)',
+                              fontSize: '0.78rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 3,
+                            }}
+                          >
+                            {sessions.length} {sessions.length === 1 ? 'Session' : 'Sessions'} (Breakdown)
+                            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {/* Expandable Session Breakdown */}
@@ -594,6 +662,17 @@ export default function AttendanceTodayPage() {
       <ManualAttendanceModal
         isOpen={showManualModal}
         onClose={() => setShowManualModal(false)}
+        onSuccess={() => {
+          refetchAttendance();
+          refetchReg();
+        }}
+      />
+
+      {/* Correct Attendance Modal for Admin */}
+      <CorrectAttendanceModal
+        isOpen={!!correctingRecord}
+        attendance={correctingRecord}
+        onClose={() => setCorrectingRecord(null)}
         onSuccess={() => {
           refetchAttendance();
           refetchReg();

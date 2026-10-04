@@ -58,34 +58,120 @@ public class ReportService {
         List<Attendance> records = attendanceRepository.findByAttendanceDateBetweenOrderByAttendanceDateDesc(startDate, endDate);
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        PrintWriter writer = new PrintWriter(out);
+        com.lowagie.text.Document document = new com.lowagie.text.Document(com.lowagie.text.PageSize.A4.rotate(), 20, 20, 25, 25);
 
-        writer.println("%PDF-1.4");
-        writer.println("% V3 Dental Clinic - Attendance Report for " + ym.getMonth().name() + " " + year);
-        writer.println("==================================================================================");
-        writer.println("V3 DENTAL CLINIC — MONTHLY ATTENDANCE ARCHIVE REPORT");
-        writer.println("Period: " + ym.getMonth().name() + " " + year + " (" + startDate + " to " + endDate + ")");
-        writer.println("Generated At: " + java.time.OffsetDateTime.now());
-        writer.println("Total Records: " + records.size());
-        writer.println("==================================================================================");
-        writer.println(String.format("%-12s | %-12s | %-20s | %-15s | %-10s | %-10s | %-12s | %-10s",
-            "Date", "Emp Code", "Employee Name", "Branch", "Check In", "Check Out", "Total Hours", "Status"));
-        writer.println("--------------------------------------------------------------------------------------------------");
+        try {
+            com.lowagie.text.pdf.PdfWriter.getInstance(document, out);
+            document.open();
 
-        for (Attendance a : records) {
-            String checkIn = (a.getCheckInAt() != null) ? a.getCheckInAt().format(DateTimeFormatter.ofPattern("HH:mm")) : "--:--";
-            String checkOut = (a.getCheckOutAt() != null) ? a.getCheckOutAt().format(DateTimeFormatter.ofPattern("HH:mm")) : "--:--";
-            String empName = a.getEmployee().getFirstName() + " " + a.getEmployee().getLastName();
-            int totalMins = a.getTotalWorkMinutes() != null ? a.getTotalWorkMinutes() : 0;
-            String totalHours = (totalMins / 60) + "h " + (totalMins % 60) + "m";
-            writer.println(String.format("%-12s | %-12s | %-20s | %-15s | %-10s | %-10s | %-12s | %-10s",
-                a.getAttendanceDate(), a.getEmployee().getEmployeeCode(), empName, a.getBranch().getCode(), checkIn, checkOut, totalHours, a.getStatus()));
+            // Fonts
+            java.awt.Color teal = new java.awt.Color(13, 148, 136); // #0d9488
+            com.lowagie.text.Font titleFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA_BOLD, 18, teal);
+            com.lowagie.text.Font subtitleFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA_BOLD, 12, new java.awt.Color(55, 65, 81));
+            com.lowagie.text.Font metaFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA, 9, new java.awt.Color(107, 114, 128));
+            com.lowagie.text.Font headerFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA_BOLD, 9, java.awt.Color.WHITE);
+            com.lowagie.text.Font cellFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA, 8.5f, new java.awt.Color(17, 24, 39));
+            com.lowagie.text.Font cellBoldFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA_BOLD, 8.5f, new java.awt.Color(17, 24, 39));
+
+            // Header Section
+            com.lowagie.text.Paragraph title = new com.lowagie.text.Paragraph("V3 DENTAL CLINIC", titleFont);
+            title.setAlignment(com.lowagie.text.Element.ALIGN_CENTER);
+            document.add(title);
+
+            com.lowagie.text.Paragraph subtitle = new com.lowagie.text.Paragraph("MONTHLY STAFF ATTENDANCE ARCHIVE REPORT", subtitleFont);
+            subtitle.setAlignment(com.lowagie.text.Element.ALIGN_CENTER);
+            subtitle.setSpacingAfter(4);
+            document.add(subtitle);
+
+            com.lowagie.text.Paragraph meta = new com.lowagie.text.Paragraph(
+                "Period: " + ym.getMonth().name() + " " + year + " (" + startDate + " to " + endDate + ")   |   Total Attendance Records: " + records.size() + "   |   Exported: " + LocalDate.now(),
+                metaFont
+            );
+            meta.setAlignment(com.lowagie.text.Element.ALIGN_CENTER);
+            meta.setSpacingAfter(14);
+            document.add(meta);
+
+            // Table with 9 Columns
+            com.lowagie.text.pdf.PdfPTable table = new com.lowagie.text.pdf.PdfPTable(9);
+            table.setWidthPercentage(100);
+            table.setWidths(new float[]{1.8f, 1.8f, 3.2f, 2.2f, 2.2f, 1.6f, 1.6f, 1.8f, 1.8f});
+
+            String[] headers = {"Date", "Emp Code", "Employee Name", "Role", "Branch", "Check In", "Check Out", "Total Hours", "Status"};
+
+            for (String h : headers) {
+                com.lowagie.text.pdf.PdfPCell cell = new com.lowagie.text.pdf.PdfPCell(new com.lowagie.text.Phrase(h, headerFont));
+                cell.setBackgroundColor(teal);
+                cell.setHorizontalAlignment(com.lowagie.text.Element.ALIGN_CENTER);
+                cell.setVerticalAlignment(com.lowagie.text.Element.ALIGN_MIDDLE);
+                cell.setPadding(6);
+                table.addCell(cell);
+            }
+
+            java.awt.Color rowBgAlt = new java.awt.Color(248, 250, 252); // #f8fafc
+            java.awt.Color rowBgWhite = java.awt.Color.WHITE;
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm");
+
+            int idx = 0;
+            for (Attendance a : records) {
+                java.awt.Color currentBg = (idx % 2 == 0) ? rowBgWhite : rowBgAlt;
+
+                String dateStr = a.getAttendanceDate() != null ? a.getAttendanceDate().toString() : "--";
+                String empCode = (a.getEmployee() != null && a.getEmployee().getEmployeeCode() != null) ? a.getEmployee().getEmployeeCode() : "--";
+                String empName = (a.getEmployee() != null) ? a.getEmployee().getFirstName() + " " + a.getEmployee().getLastName() : "Staff";
+                String role = (a.getEmployee() != null && a.getEmployee().getUser() != null && a.getEmployee().getUser().getRole() != null)
+                    ? a.getEmployee().getUser().getRole().getName()
+                    : ((a.getEmployee() != null && a.getEmployee().getDesignation() != null) ? a.getEmployee().getDesignation() : "Staff");
+                String branch = (a.getBranch() != null) ? a.getBranch().getName() : "--";
+                String checkIn = (a.getCheckInAt() != null) ? a.getCheckInAt().format(timeFormatter) : "--:--";
+                String checkOut = (a.getCheckOutAt() != null) ? a.getCheckOutAt().format(timeFormatter) : "--:--";
+
+                int totalMins = a.getTotalWorkMinutes() != null ? a.getTotalWorkMinutes() : 0;
+                String totalHours = (totalMins / 60) + "h " + (totalMins % 60) + "m";
+                String status = a.getStatus() != null ? a.getStatus() : "PRESENT";
+
+                addTableCell(table, dateStr, cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, empCode, cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, empName, cellBoldFont, currentBg, com.lowagie.text.Element.ALIGN_LEFT);
+                addTableCell(table, role, cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, branch, cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, checkIn, cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, checkOut, cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, totalHours, cellBoldFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+
+                // Status with distinctive color
+                java.awt.Color statusColor = new java.awt.Color(5, 150, 105); // Green
+                if ("LATE".equalsIgnoreCase(status)) statusColor = new java.awt.Color(217, 119, 6);
+                else if ("ABSENT".equalsIgnoreCase(status)) statusColor = new java.awt.Color(220, 38, 38);
+                else if ("ON_LEAVE".equalsIgnoreCase(status)) statusColor = new java.awt.Color(2, 132, 199);
+
+                com.lowagie.text.Font statusFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA_BOLD, 8.5f, statusColor);
+                addTableCell(table, status, statusFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+
+                idx++;
+            }
+
+            document.add(table);
+
+            com.lowagie.text.Paragraph footer = new com.lowagie.text.Paragraph("Confidential — V3 Dental Clinic Attendance Management System — Auto-Generated Official Archive", metaFont);
+            footer.setAlignment(com.lowagie.text.Element.ALIGN_CENTER);
+            footer.setSpacingBefore(14);
+            document.add(footer);
+
+            document.close();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate PDF report: " + e.getMessage(), e);
         }
 
-        writer.println("==================================================================================================");
-        writer.println("END OF REPORT — V3 DENTAL CLINIC ATTENDANCE SYSTEM");
-        writer.flush();
         return out.toByteArray();
+    }
+
+    private void addTableCell(com.lowagie.text.pdf.PdfPTable table, String text, com.lowagie.text.Font font, java.awt.Color bg, int alignment) {
+        com.lowagie.text.pdf.PdfPCell cell = new com.lowagie.text.pdf.PdfPCell(new com.lowagie.text.Phrase(text != null ? text : "", font));
+        cell.setBackgroundColor(bg);
+        cell.setHorizontalAlignment(alignment);
+        cell.setVerticalAlignment(com.lowagie.text.Element.ALIGN_MIDDLE);
+        cell.setPadding(5);
+        table.addCell(cell);
     }
 
     public byte[] generateMonthlyExcelCsvReport(int year, int month) {

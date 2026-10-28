@@ -232,7 +232,7 @@ export default function ArchivePage() {
               <CheckCircle2 size={18} color="var(--emerald)" /> Staff Salary Calculation Summary
             </h3>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-3)', marginTop: 2 }}>
-              Period: {fromDate} to {toDate} · Total Days include Sundays for salary calculation · Working Days = Mon to Sat
+              Period: {fromDate} to {toDate} · All Days Including Sundays (No Sundays Excluded) · Working Days = Present + Leave + Absent
             </p>
           </div>
 

@@ -88,22 +88,19 @@ public class ReportService {
             toDate = tmp;
         }
 
-        // All calendar days in the range (Sunday included!)
+        // All calendar and operating clinic days in the range (All Sundays included - not excluded!)
         List<LocalDate> allDates = new ArrayList<>();
-        // Working days (Monday to Saturday)
         List<LocalDate> workingDates = new ArrayList<>();
 
         LocalDate cur = fromDate;
         while (!cur.isAfter(toDate)) {
             allDates.add(cur);
-            if (cur.getDayOfWeek() != DayOfWeek.SUNDAY) {
-                workingDates.add(cur);
-            }
+            workingDates.add(cur); // Every day including all Sundays is counted as a clinic operating day
             cur = cur.plusDays(1);
         }
 
         int totalDays = allDates.size(); // Total days including Sundays
-        int totalWorkingDays = workingDates.size(); // Working days
+        int totalWorkingDays = workingDates.size(); // Total operating working days including all Sundays
 
         List<Employee> employees = employeeRepository.findAll().stream()
             .filter(e -> Boolean.TRUE.equals(e.getIsActive()))

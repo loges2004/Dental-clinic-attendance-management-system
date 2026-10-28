@@ -122,7 +122,6 @@ export interface AttendanceCorrectionDto {
   totalWorkMinutes?: number;
 }
 
-
 export interface AttendanceRegularizationRequest {
   id: number;
   employee: Employee;
@@ -183,7 +182,30 @@ export interface LeaveRequest {
   reason: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
   rejectionReason?: string;
+  approvedBy?: { id: number; username: string; email?: string } | null;
+  approvedAt?: string | null;
   createdAt: string;
+}
+
+export interface SalaryAttendanceSummary {
+  sNo: number;
+  employeeId: number;
+  employeeCode: string;
+  employeeName: string;
+  month: string;
+  fromDate: string;
+  toDate: string;
+  totalDays: number;
+  totalWorkingDays: number;
+  presentDays: number;
+  leaveDays: number;
+  absentDays: number;
+  totalWorkingHours: string;
+  totalWorkMinutes: number;
+  lateCount: number;
+  totalLateMinutes: number;
+  designation: string;
+  branchName: string;
 }
 
 export interface MonthlyArchiveSummary {
@@ -198,4 +220,3 @@ export interface MonthlyArchiveSummary {
   onLeaveCount: number;
   totalDaysInMonth: number;
 }
-

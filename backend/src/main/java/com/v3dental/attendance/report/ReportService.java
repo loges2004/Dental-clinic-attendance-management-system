@@ -3,7 +3,10 @@ package com.v3dental.attendance.report;
 import com.v3dental.attendance.attendance.Attendance;
 import com.v3dental.attendance.attendance.AttendanceRepository;
 import com.v3dental.attendance.audit.AuditService;
+import com.v3dental.attendance.employee.Employee;
 import com.v3dental.attendance.employee.EmployeeRepository;
+import com.v3dental.attendance.leave.LeaveRequest;
+import com.v3dental.attendance.leave.LeaveRequestRepository;
 import com.v3dental.attendance.user.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -11,10 +14,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
+import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -22,7 +31,12 @@ public class ReportService {
 
     private final AttendanceRepository attendanceRepository;
     private final EmployeeRepository employeeRepository;
+    private final LeaveRequestRepository leaveRequestRepository;
     private final AuditService auditService;
+
+    private static final ZoneId CLINIC_ZONE = ZoneId.of("Asia/Kolkata");
+    private static final DateTimeFormatter DISPLAY_DATE_FORMAT = DateTimeFormatter.ofPattern("dd-MMM-yyyy", Locale.ENGLISH);
+    private static final DateTimeFormatter MONTH_YEAR_FORMAT = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH);
 
     public MonthlyArchiveSummaryDto getMonthlySummary(int year, int month) {
         YearMonth ym = YearMonth.of(year, month);
@@ -51,115 +65,260 @@ public class ReportService {
             .build();
     }
 
-    public byte[] generateMonthlyPdfReport(int year, int month) {
+    public List<SalaryAttendanceSummaryDto> getSalaryAttendanceSummary(int year, int month) {
+        return getSalaryAttendanceSummary(year, month, null, null);
+    }
+
+    /**
+     * Calculates the employee-level salary and attendance summary for a given month or custom date range.
+     * Total Days: All calendar days in the period (INCLUDING Sundays).
+     * Total Working Days: Clinic working days (Monday - Saturday).
+     * Present Days: All days attended (including any Sunday duty/shifts).
+     * Structure:
+     * S.No. | Employee ID | Employee Name | Month | From Date | To Date | Total Days | Total Working Days | Present Days | Leave Days | Absent Days | Total Working Hours | Late Count | Total Late Minutes
+     */
+    public List<SalaryAttendanceSummaryDto> getSalaryAttendanceSummary(int year, int month, LocalDate customFrom, LocalDate customTo) {
         YearMonth ym = YearMonth.of(year, month);
-        LocalDate startDate = ym.atDay(1);
-        LocalDate endDate = ym.atEndOfMonth();
-        List<Attendance> records = attendanceRepository.findByAttendanceDateBetweenOrderByAttendanceDateDesc(startDate, endDate);
+        LocalDate fromDate = (customFrom != null) ? customFrom : ym.atDay(1);
+        LocalDate toDate = (customTo != null) ? customTo : ym.atEndOfMonth();
+
+        if (fromDate.isAfter(toDate)) {
+            LocalDate tmp = fromDate;
+            fromDate = toDate;
+            toDate = tmp;
+        }
+
+        // All calendar days in the range (Sunday included!)
+        List<LocalDate> allDates = new ArrayList<>();
+        // Working days (Monday to Saturday)
+        List<LocalDate> workingDates = new ArrayList<>();
+
+        LocalDate cur = fromDate;
+        while (!cur.isAfter(toDate)) {
+            allDates.add(cur);
+            if (cur.getDayOfWeek() != DayOfWeek.SUNDAY) {
+                workingDates.add(cur);
+            }
+            cur = cur.plusDays(1);
+        }
+
+        int totalDays = allDates.size(); // Total days including Sundays
+        int totalWorkingDays = workingDates.size(); // Working days
+
+        List<Employee> employees = employeeRepository.findAll().stream()
+            .filter(e -> Boolean.TRUE.equals(e.getIsActive()))
+            .sorted(Comparator.comparing(Employee::getFirstName, String.CASE_INSENSITIVE_ORDER))
+            .collect(Collectors.toList());
+
+        List<Attendance> attendanceRecords = attendanceRepository.findByAttendanceDateBetweenOrderByAttendanceDateDesc(fromDate, toDate);
+        List<LeaveRequest> approvedLeaves = leaveRequestRepository.findApprovedLeavesBetween(fromDate, toDate);
+
+        Map<Long, List<Attendance>> attByEmp = attendanceRecords.stream()
+            .filter(a -> a.getEmployee() != null)
+            .collect(Collectors.groupingBy(a -> a.getEmployee().getId()));
+
+        Map<Long, List<LeaveRequest>> leavesByEmp = approvedLeaves.stream()
+            .filter(lr -> lr.getEmployee() != null)
+            .collect(Collectors.groupingBy(lr -> lr.getEmployee().getId()));
+
+        String monthStr = fromDate.format(MONTH_YEAR_FORMAT);
+        String fromStr = fromDate.format(DISPLAY_DATE_FORMAT);
+        String toStr = toDate.format(DISPLAY_DATE_FORMAT);
+
+        List<SalaryAttendanceSummaryDto> results = new ArrayList<>();
+        int sNo = 1;
+
+        for (Employee emp : employees) {
+            List<Attendance> empAtts = attByEmp.getOrDefault(emp.getId(), Collections.emptyList());
+            List<LeaveRequest> empLeaves = leavesByEmp.getOrDefault(emp.getId(), Collections.emptyList());
+
+            // Distinct dates attended on any day within range (including Sunday shifts!)
+            Set<LocalDate> attendedDates = empAtts.stream()
+                .filter(a -> "PRESENT".equalsIgnoreCase(a.getStatus()) || "LATE".equalsIgnoreCase(a.getStatus())
+                    || "HALF_DAY".equalsIgnoreCase(a.getStatus()) || a.getCheckInAt() != null)
+                .map(Attendance::getAttendanceDate)
+                .filter(allDates::contains)
+                .collect(Collectors.toSet());
+
+            int presentDays = attendedDates.size();
+
+            // Approved leave days within range (that were not attended)
+            Set<LocalDate> leaveDates = new HashSet<>();
+            for (LeaveRequest lr : empLeaves) {
+                LocalDate lCur = lr.getStartDate().isBefore(fromDate) ? fromDate : lr.getStartDate();
+                LocalDate lEnd = lr.getEndDate().isAfter(toDate) ? toDate : lr.getEndDate();
+                while (!lCur.isAfter(lEnd)) {
+                    if (allDates.contains(lCur) && !attendedDates.contains(lCur)) {
+                        leaveDates.add(lCur);
+                    }
+                    lCur = lCur.plusDays(1);
+                }
+            }
+            int leaveDays = leaveDates.size();
+
+            // Absent days on working days (where employee was neither present nor on approved leave)
+            long absentCount = workingDates.stream()
+                .filter(d -> !attendedDates.contains(d) && !leaveDates.contains(d))
+                .count();
+            int absentDays = (int) absentCount;
+
+            // Total working hours (including Sunday shifts)
+            long totalMinutes = empAtts.stream()
+                .mapToLong(a -> a.getTotalWorkMinutes() != null ? a.getTotalWorkMinutes() : 0)
+                .sum();
+            long hrs = totalMinutes / 60;
+            long mins = totalMinutes % 60;
+            String totalWorkingHours = hrs + "h " + (mins < 10 ? "0" + mins : mins) + "m";
+
+            // Late count and late minutes
+            int lateCount = (int) empAtts.stream().filter(a -> Boolean.TRUE.equals(a.getIsLate())).count();
+            long totalLateMinutes = 0;
+
+            for (Attendance a : empAtts) {
+                if (Boolean.TRUE.equals(a.getIsLate()) && a.getCheckInAt() != null) {
+                    LocalTime checkInTime = a.getCheckInAt().atZoneSameInstant(CLINIC_ZONE).toLocalTime();
+                    LocalTime baseline = LocalTime.of(9, 15);
+                    if (a.getShift() != null) {
+                        baseline = a.getShift().getStartTime().plusMinutes(a.getShift().getGracePeriodMinutes());
+                    }
+                    if (checkInTime.isAfter(baseline)) {
+                        totalLateMinutes += Math.max(0, Duration.between(baseline, checkInTime).toMinutes());
+                    }
+                }
+            }
+
+            String empName = (emp.getFirstName() + " " + (emp.getLastName() != null ? emp.getLastName() : "")).trim();
+            String branchName = (emp.getBranch() != null) ? emp.getBranch().getName() : "All Branches";
+            String designation = emp.getDesignation() != null ? emp.getDesignation() : "Staff";
+
+            results.add(SalaryAttendanceSummaryDto.builder()
+                .sNo(sNo++)
+                .employeeId(emp.getId())
+                .employeeCode(emp.getEmployeeCode() != null ? emp.getEmployeeCode() : "EMP" + emp.getId())
+                .employeeName(empName)
+                .month(monthStr)
+                .fromDate(fromStr)
+                .toDate(toStr)
+                .totalDays(totalDays)
+                .totalWorkingDays(totalWorkingDays)
+                .presentDays(presentDays)
+                .leaveDays(leaveDays)
+                .absentDays(absentDays)
+                .totalWorkingHours(totalWorkingHours)
+                .totalWorkMinutes(totalMinutes)
+                .lateCount(lateCount)
+                .totalLateMinutes(totalLateMinutes)
+                .designation(designation)
+                .branchName(branchName)
+                .build());
+        }
+
+        return results;
+    }
+
+    public byte[] generateMonthlyPdfReport(int year, int month) {
+        return generateMonthlyPdfReport(year, month, null, null);
+    }
+
+    public byte[] generateMonthlyPdfReport(int year, int month, LocalDate customFrom, LocalDate customTo) {
+        List<SalaryAttendanceSummaryDto> summaryList = getSalaryAttendanceSummary(year, month, customFrom, customTo);
+        YearMonth ym = YearMonth.of(year, month);
+        LocalDate fromDate = (customFrom != null) ? customFrom : ym.atDay(1);
+        LocalDate toDate = (customTo != null) ? customTo : ym.atEndOfMonth();
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        com.lowagie.text.Document document = new com.lowagie.text.Document(com.lowagie.text.PageSize.A4.rotate(), 20, 20, 25, 25);
+        com.lowagie.text.Document document = new com.lowagie.text.Document(com.lowagie.text.PageSize.A4.rotate(), 15, 15, 20, 20);
 
         try {
             com.lowagie.text.pdf.PdfWriter.getInstance(document, out);
             document.open();
 
-            // Fonts
-            java.awt.Color teal = new java.awt.Color(13, 148, 136); // #0d9488
-            com.lowagie.text.Font titleFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA_BOLD, 18, teal);
-            com.lowagie.text.Font subtitleFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA_BOLD, 12, new java.awt.Color(55, 65, 81));
-            com.lowagie.text.Font metaFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA, 9, new java.awt.Color(107, 114, 128));
-            com.lowagie.text.Font headerFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA_BOLD, 9, java.awt.Color.WHITE);
-            com.lowagie.text.Font cellFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA, 8.5f, new java.awt.Color(17, 24, 39));
-            com.lowagie.text.Font cellBoldFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA_BOLD, 8.5f, new java.awt.Color(17, 24, 39));
+            java.awt.Color tealPrimary = new java.awt.Color(13, 148, 136); // #0d9488
+            com.lowagie.text.Font titleFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA_BOLD, 17, tealPrimary);
+            com.lowagie.text.Font subtitleFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA_BOLD, 11, new java.awt.Color(55, 65, 81));
+            com.lowagie.text.Font metaFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA, 8.5f, new java.awt.Color(107, 114, 128));
+            com.lowagie.text.Font headerFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA_BOLD, 7.8f, java.awt.Color.WHITE);
+            com.lowagie.text.Font cellFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA, 7.5f, new java.awt.Color(17, 24, 39));
+            com.lowagie.text.Font cellBoldFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA_BOLD, 7.5f, new java.awt.Color(17, 24, 39));
 
             // Header Section
             com.lowagie.text.Paragraph title = new com.lowagie.text.Paragraph("V3 DENTAL CLINIC", titleFont);
             title.setAlignment(com.lowagie.text.Element.ALIGN_CENTER);
             document.add(title);
 
-            com.lowagie.text.Paragraph subtitle = new com.lowagie.text.Paragraph("MONTHLY STAFF ATTENDANCE ARCHIVE REPORT", subtitleFont);
+            com.lowagie.text.Paragraph subtitle = new com.lowagie.text.Paragraph("STAFF ATTENDANCE & SALARY CALCULATION ARCHIVE", subtitleFont);
             subtitle.setAlignment(com.lowagie.text.Element.ALIGN_CENTER);
             subtitle.setSpacingAfter(4);
             document.add(subtitle);
 
             com.lowagie.text.Paragraph meta = new com.lowagie.text.Paragraph(
-                "Period: " + ym.getMonth().name() + " " + year + " (" + startDate + " to " + endDate + ")   |   Total Attendance Records: " + records.size() + "   |   Exported: " + LocalDate.now(),
+                "Period: " + fromDate.format(DISPLAY_DATE_FORMAT) + " to " + toDate.format(DISPLAY_DATE_FORMAT) +
+                " (" + fromDate.format(MONTH_YEAR_FORMAT) + ")   |   Total Staff: " + summaryList.size() +
+                "   |   Generated: " + LocalDate.now().format(DISPLAY_DATE_FORMAT),
                 metaFont
             );
             meta.setAlignment(com.lowagie.text.Element.ALIGN_CENTER);
-            meta.setSpacingAfter(14);
+            meta.setSpacingAfter(12);
             document.add(meta);
 
-            // Table with 9 Columns
-            com.lowagie.text.pdf.PdfPTable table = new com.lowagie.text.pdf.PdfPTable(9);
+            // Table with 14 Columns (including Total Days with Sundays & Total Working Days):
+            com.lowagie.text.pdf.PdfPTable table = new com.lowagie.text.pdf.PdfPTable(14);
             table.setWidthPercentage(100);
-            table.setWidths(new float[]{1.8f, 1.8f, 3.2f, 2.2f, 2.2f, 1.6f, 1.6f, 1.8f, 1.8f});
+            table.setWidths(new float[]{1.0f, 1.8f, 3.4f, 2.2f, 2.1f, 2.1f, 1.6f, 1.7f, 1.5f, 1.4f, 1.4f, 2.2f, 1.4f, 1.6f});
 
-            String[] headers = {"Date", "Emp Code", "Employee Name", "Role", "Branch", "Check In", "Check Out", "Total Hours", "Status"};
+            String[] headers = {
+                "S.No.", "Employee ID", "Employee Name", "Month", "From Date", "To Date",
+                "Total Days", "Total Working Days", "Present Days", "Leave Days", "Absent Days",
+                "Total Working Hours", "Late Count", "Total Late Minutes"
+            };
 
             for (String h : headers) {
                 com.lowagie.text.pdf.PdfPCell cell = new com.lowagie.text.pdf.PdfPCell(new com.lowagie.text.Phrase(h, headerFont));
-                cell.setBackgroundColor(teal);
+                cell.setBackgroundColor(tealPrimary);
                 cell.setHorizontalAlignment(com.lowagie.text.Element.ALIGN_CENTER);
                 cell.setVerticalAlignment(com.lowagie.text.Element.ALIGN_MIDDLE);
-                cell.setPadding(6);
+                cell.setPadding(5);
                 table.addCell(cell);
             }
 
-            java.awt.Color rowBgAlt = new java.awt.Color(248, 250, 252); // #f8fafc
+            java.awt.Color rowBgAlt = new java.awt.Color(248, 250, 252);
             java.awt.Color rowBgWhite = java.awt.Color.WHITE;
-            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm");
 
             int idx = 0;
-            for (Attendance a : records) {
+            for (SalaryAttendanceSummaryDto row : summaryList) {
                 java.awt.Color currentBg = (idx % 2 == 0) ? rowBgWhite : rowBgAlt;
 
-                String dateStr = a.getAttendanceDate() != null ? a.getAttendanceDate().toString() : "--";
-                String empCode = (a.getEmployee() != null && a.getEmployee().getEmployeeCode() != null) ? a.getEmployee().getEmployeeCode() : "--";
-                String empName = (a.getEmployee() != null) ? a.getEmployee().getFirstName() + " " + a.getEmployee().getLastName() : "Staff";
-                String role = (a.getEmployee() != null && a.getEmployee().getUser() != null && a.getEmployee().getUser().getRole() != null)
-                    ? a.getEmployee().getUser().getRole().getName()
-                    : ((a.getEmployee() != null && a.getEmployee().getDesignation() != null) ? a.getEmployee().getDesignation() : "Staff");
-                String branch = (a.getBranch() != null) ? a.getBranch().getName() : "--";
-                String checkIn = (a.getCheckInAt() != null) ? a.getCheckInAt().format(timeFormatter) : "--:--";
-                String checkOut = (a.getCheckOutAt() != null) ? a.getCheckOutAt().format(timeFormatter) : "--:--";
-
-                int totalMins = a.getTotalWorkMinutes() != null ? a.getTotalWorkMinutes() : 0;
-                String totalHours = (totalMins / 60) + "h " + (totalMins % 60) + "m";
-                String status = a.getStatus() != null ? a.getStatus() : "PRESENT";
-
-                addTableCell(table, dateStr, cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
-                addTableCell(table, empCode, cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
-                addTableCell(table, empName, cellBoldFont, currentBg, com.lowagie.text.Element.ALIGN_LEFT);
-                addTableCell(table, role, cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
-                addTableCell(table, branch, cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
-                addTableCell(table, checkIn, cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
-                addTableCell(table, checkOut, cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
-                addTableCell(table, totalHours, cellBoldFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
-
-                // Status with distinctive color
-                java.awt.Color statusColor = new java.awt.Color(5, 150, 105); // Green
-                if ("LATE".equalsIgnoreCase(status)) statusColor = new java.awt.Color(217, 119, 6);
-                else if ("ABSENT".equalsIgnoreCase(status)) statusColor = new java.awt.Color(220, 38, 38);
-                else if ("ON_LEAVE".equalsIgnoreCase(status)) statusColor = new java.awt.Color(2, 132, 199);
-
-                com.lowagie.text.Font statusFont = com.lowagie.text.FontFactory.getFont(com.lowagie.text.FontFactory.HELVETICA_BOLD, 8.5f, statusColor);
-                addTableCell(table, status, statusFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, String.valueOf(row.getSNo()), cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, row.getEmployeeCode(), cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, row.getEmployeeName(), cellBoldFont, currentBg, com.lowagie.text.Element.ALIGN_LEFT);
+                addTableCell(table, row.getMonth(), cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, row.getFromDate(), cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, row.getToDate(), cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, String.valueOf(row.getTotalDays()), cellBoldFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, String.valueOf(row.getTotalWorkingDays()), cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, String.valueOf(row.getPresentDays()), cellBoldFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, String.valueOf(row.getLeaveDays()), cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, String.valueOf(row.getAbsentDays()), cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, row.getTotalWorkingHours(), cellBoldFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, String.valueOf(row.getLateCount()), cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
+                addTableCell(table, String.valueOf(row.getTotalLateMinutes()), cellFont, currentBg, com.lowagie.text.Element.ALIGN_CENTER);
 
                 idx++;
             }
 
             document.add(table);
 
-            com.lowagie.text.Paragraph footer = new com.lowagie.text.Paragraph("Confidential — V3 Dental Clinic Attendance Management System — Auto-Generated Official Archive", metaFont);
+            com.lowagie.text.Paragraph footer = new com.lowagie.text.Paragraph(
+                "Confidential — V3 Dental Clinic Attendance Management System — Official Monthly Salary Calculation Sheet",
+                metaFont
+            );
             footer.setAlignment(com.lowagie.text.Element.ALIGN_CENTER);
-            footer.setSpacingBefore(14);
+            footer.setSpacingBefore(12);
             document.add(footer);
 
             document.close();
         } catch (Exception e) {
-            throw new RuntimeException("Failed to generate PDF report: " + e.getMessage(), e);
+            throw new RuntimeException("Failed to generate PDF salary archive report: " + e.getMessage(), e);
         }
 
         return out.toByteArray();
@@ -170,49 +329,54 @@ public class ReportService {
         cell.setBackgroundColor(bg);
         cell.setHorizontalAlignment(alignment);
         cell.setVerticalAlignment(com.lowagie.text.Element.ALIGN_MIDDLE);
-        cell.setPadding(5);
+        cell.setPadding(4);
         table.addCell(cell);
     }
 
     public byte[] generateMonthlyExcelCsvReport(int year, int month) {
-        YearMonth ym = YearMonth.of(year, month);
-        LocalDate startDate = ym.atDay(1);
-        LocalDate endDate = ym.atEndOfMonth();
-        List<Attendance> records = attendanceRepository.findByAttendanceDateBetweenOrderByAttendanceDateDesc(startDate, endDate);
+        return generateMonthlyExcelCsvReport(year, month, null, null);
+    }
+
+    public byte[] generateMonthlyExcelCsvReport(int year, int month, LocalDate customFrom, LocalDate customTo) {
+        List<SalaryAttendanceSummaryDto> summaryList = getSalaryAttendanceSummary(year, month, customFrom, customTo);
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        PrintWriter writer = new PrintWriter(out);
+        try {
+            // Write UTF-8 BOM so Excel opens CSV with proper encoding
+            out.write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
+        } catch (Exception ignored) {}
 
-        writer.println("Date,Employee Code,Employee Name,Designation,Branch,Shift,Check In Time,Check Out Time,Total Work Minutes,Total Work Hours,Status,Is Late,Is Early Checkout");
+        PrintWriter writer = new PrintWriter(out, true, StandardCharsets.UTF_8);
 
-        for (Attendance a : records) {
-            String checkIn = (a.getCheckInAt() != null) ? a.getCheckInAt().toString() : "";
-            String checkOut = (a.getCheckOutAt() != null) ? a.getCheckOutAt().toString() : "";
-            String empName = a.getEmployee().getFirstName() + " " + a.getEmployee().getLastName();
-            String shiftName = (a.getShift() != null) ? a.getShift().getName() : "N/A";
-            int totalMins = a.getTotalWorkMinutes() != null ? a.getTotalWorkMinutes() : 0;
-            String totalHoursFormatted = String.format("%.2f hrs (%dh %dm)", totalMins / 60.0, totalMins / 60, totalMins % 60);
+        // Header with Total Days (Sunday included) & Total Working Days
+        writer.println("S.No.,Employee ID,Employee Name,Month,From Date,To Date,Total Days,Total Working Days,Present Days,Leave Days,Absent Days,Total Working Hours,Late Count,Total Late Minutes");
 
-            writer.println(String.format("%s,\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",%d,\"%s\",\"%s\",%b,%b",
-                a.getAttendanceDate(),
-                a.getEmployee().getEmployeeCode(),
-                empName,
-                a.getEmployee().getDesignation(),
-                a.getBranch().getName(),
-                shiftName,
-                checkIn,
-                checkOut,
-                totalMins,
-                totalHoursFormatted,
-                a.getStatus(),
-                a.getIsLate(),
-                a.getIsEarlyCheckout()
+        for (SalaryAttendanceSummaryDto row : summaryList) {
+            writer.println(String.format("%d,\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",%d,%d,%d,%d,%d,\"%s\",%d,%d",
+                row.getSNo(),
+                escapeCsv(row.getEmployeeCode()),
+                escapeCsv(row.getEmployeeName()),
+                escapeCsv(row.getMonth()),
+                row.getFromDate(),
+                row.getToDate(),
+                row.getTotalDays(),
+                row.getTotalWorkingDays(),
+                row.getPresentDays(),
+                row.getLeaveDays(),
+                row.getAbsentDays(),
+                row.getTotalWorkingHours(),
+                row.getLateCount(),
+                row.getTotalLateMinutes()
             ));
         }
 
-
         writer.flush();
         return out.toByteArray();
+    }
+
+    private String escapeCsv(String str) {
+        if (str == null) return "";
+        return str.replace("\"", "\"\"");
     }
 
     @Transactional

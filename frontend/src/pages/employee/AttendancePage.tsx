@@ -50,6 +50,7 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
   const [, setTick] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const watchIdRef = useRef<number | null>(null);
+  const hasSent10PmNotifRef = useRef(false);
 
   // Live clock
   useEffect(() => {
@@ -130,6 +131,21 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
 
   // Find active open session if checked in
   const activeSession = isCurrentlyIn ? sessions[sessions.length - 1] : null;
+
+  // 10:00 PM Late Night Check-out reminder browser notification
+  useEffect(() => {
+    if (isCurrentlyIn && now.getHours() >= 22 && !hasSent10PmNotifRef.current) {
+      hasSent10PmNotifRef.current = true;
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification('V3 Dental Clinic — 10 PM Check-Out Reminder', {
+            body: 'It is past 10:00 PM. Please remember to check out from the clinic to log your daily working hours.',
+            icon: '/favicon.ico',
+          });
+        } catch (_) {}
+      }
+    }
+  }, [isCurrentlyIn, now]);
 
   // Proactive Departure Detection: If checked in and phone detects user is outside clinic (> radius + 200m)
   useEffect(() => {
@@ -448,6 +464,65 @@ export default function AttendancePage({ onNavigate }: { onNavigate: (p: string)
         </button>
       </div>
 
+      {/* ── 10:00 PM LATE NIGHT CHECK-OUT REMINDER BANNER ── */}
+      {isCurrentlyIn && now.getHours() >= 22 && (
+        <div
+          className="glass-card"
+          style={{
+            padding: '1.1rem 1.25rem',
+            background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.18) 0%, rgba(245, 158, 11, 0.22) 100%)',
+            border: '1.5px solid rgba(245, 158, 11, 0.65)',
+            borderRadius: 'var(--r-md)',
+            boxShadow: '0 4px 20px rgba(239, 68, 68, 0.2)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.85rem' }}>
+            <div
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: 'var(--r-sm)',
+                background: 'rgba(239, 68, 68, 0.25)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Clock size={22} color="#fca5a5" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, fontSize: '1.02rem', color: '#fef08a' }}>
+                ⏰ Late Night Check-Out Reminder (Past 10:00 PM)
+              </div>
+              <p style={{ fontSize: '0.84rem', color: 'var(--text-1)', lineHeight: 1.5, margin: '0.35rem 0 0.85rem' }}>
+                It is past 10:00 PM and you are currently marked as <strong>Checked In</strong>. If your shift has concluded, please check out now so your working hours and salary are accurately logged.
+              </p>
+              <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={handleCheckOut}
+                  disabled={actionLoading}
+                  style={{ background: 'linear-gradient(135deg, #f43f5e 0%, #e11d48 100%)', fontWeight: 700 }}
+                >
+                  <LogOut size={15} /> Check Out Now
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    const defaultTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                    setForgotCheckoutTime(defaultTime);
+                    setShowForgotCheckoutModal(true);
+                  }}
+                  style={{ background: 'rgba(255,255,255,0.1)' }}
+                >
+                  <Clock size={15} /> I Left Earlier (Set Exit Time)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CUMULATIVE WORK HOURS HERO CARD */}
       {hasEverCheckedInToday && (

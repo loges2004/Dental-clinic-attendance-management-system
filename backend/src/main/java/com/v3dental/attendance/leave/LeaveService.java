@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
 
@@ -82,8 +83,8 @@ public class LeaveService {
     }
 
     public List<LeaveRequest> getAllLeaveRequests(String status) {
-        if (status != null && !status.isBlank()) {
-            return leaveRequestRepository.findByStatusOrderByCreatedAtDesc(status.toUpperCase());
+        if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status.trim())) {
+            return leaveRequestRepository.findByStatusOrderByCreatedAtDesc(status.toUpperCase().trim());
         }
         return leaveRequestRepository.findAllByOrderByCreatedAtDesc();
     }
@@ -93,7 +94,7 @@ public class LeaveService {
         LeaveRequest request = leaveRequestRepository.findById(requestId)
             .orElseThrow(() -> new RuntimeException("Leave request not found"));
 
-        if (!"PENDING".equals(request.getStatus())) {
+        if (!"PENDING".equalsIgnoreCase(request.getStatus())) {
             throw new IllegalStateException("Leave request is already " + request.getStatus());
         }
 
@@ -104,7 +105,7 @@ public class LeaveService {
         // Update Request status
         request.setStatus("APPROVED");
         request.setApprovedBy(adminUser);
-        request.setApprovedAt(java.time.OffsetDateTime.now(CLINIC_ZONE));
+        request.setApprovedAt(OffsetDateTime.now(CLINIC_ZONE));
         LeaveRequest saved = leaveRequestRepository.save(request);
 
         // Reduce pending & record ledger transaction
@@ -120,19 +121,25 @@ public class LeaveService {
         LeaveRequest request = leaveRequestRepository.findById(requestId)
             .orElseThrow(() -> new RuntimeException("Leave request not found"));
 
-        if (!"PENDING".equals(request.getStatus())) {
+        if (!"PENDING".equalsIgnoreCase(request.getStatus())) {
             throw new IllegalStateException("Leave request is already " + request.getStatus());
         }
 
         request.setStatus("REJECTED");
         request.setRejectionReason(rejectionReason);
+        request.setApprovedBy(adminUser);
+        request.setApprovedAt(OffsetDateTime.now(CLINIC_ZONE));
         LeaveRequest saved = leaveRequestRepository.save(request);
 
         // Clear pending amount
         Employee emp = request.getEmployee();
         LocalDate startDate = request.getStartDate();
         LeavePeriod period = leaveBalanceService.getOrCreateCurrentPeriod(emp, startDate.getYear(), startDate.getMonthValue());
-        period.setPending(period.getPending().subtract(request.getDuration()));
+        if (period.getPending().compareTo(request.getDuration()) >= 0) {
+            period.setPending(period.getPending().subtract(request.getDuration()));
+        } else {
+            period.setPending(java.math.BigDecimal.ZERO);
+        }
 
         auditService.logAction(adminUser, "LEAVE_REJECTED", "LEAVE_REQUEST", saved.getId(), "Rejected leave request #" + saved.getId());
         return saved;
@@ -151,7 +158,7 @@ public class LeaveService {
             throw new IllegalStateException("You are not authorized to cancel this leave request");
         }
 
-        if (!"PENDING".equals(request.getStatus())) {
+        if (!"PENDING".equalsIgnoreCase(request.getStatus())) {
             throw new IllegalStateException("Only PENDING leave requests can be cancelled");
         }
 

@@ -576,6 +576,21 @@ public class AttendanceService {
         }
     }
 
+    public void logTenPmReminderForOpenSessions() {
+        LocalDate today = LocalDate.now(CLINIC_ZONE);
+        List<Attendance> openAttendances = attendanceRepository.findByAttendanceDateAndCurrentSessionStatus(today, "CHECKED_IN");
+        for (Attendance a : openAttendances) {
+            String empName = a.getEmployee() != null ? a.getEmployee().getFirstName() + " " + a.getEmployee().getLastName() : "Staff";
+            auditService.logAction(
+                a.getEmployee() != null ? a.getEmployee().getUser() : null,
+                "LATE_NIGHT_CHECKOUT_REMINDER",
+                "ATTENDANCE",
+                a.getId(),
+                "Reminder: Staff " + empName + " is still clocked in past 10:00 PM."
+            );
+        }
+    }
+
     public Optional<Attendance> getTodayAttendance(String username) {
         User user = userRepository.findByUsername(username).orElse(null);
         if (user == null) return Optional.empty();

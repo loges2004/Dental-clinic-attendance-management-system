@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { leaveService } from '../../services/leaveService';
-import { Trash2 } from 'lucide-react';
+import { Trash2, UserCheck, XCircle } from 'lucide-react';
 
 function leaveStatusBadge(status: string) {
   const map: Record<string, string> = {
@@ -88,7 +88,7 @@ export default function LeaveHistoryPage() {
                 <div>
                   <div style={{ fontWeight: 700 }}>{lr.leaveType?.name}</div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-3)', marginTop: '0.2rem' }}>
-                    {formatDate(lr.startDate)} – {formatDate(lr.endDate)} · {lr.duration} day{lr.duration !== 1 ? 's' : ''}
+                    {formatDate(lr.startDate)} – {formatDate(lr.endDate)} · {lr.duration} day{lr.duration !== 1 ? 's' : ''} ({lr.durationType?.replace('_', ' ') || 'FULL DAY'})
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -109,9 +109,50 @@ export default function LeaveHistoryPage() {
               <div style={{ fontSize: '0.82rem', color: 'var(--text-2)', marginTop: '0.6rem' }}>
                 {lr.reason}
               </div>
-              {lr.rejectionReason && (
-                <div style={{ fontSize: '0.78rem', color: 'var(--rose)', marginTop: '0.35rem' }}>
-                  Rejection reason: {lr.rejectionReason}
+
+              {/* Show which admin approved */}
+              {lr.status === 'APPROVED' && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  fontSize: '0.78rem',
+                  color: 'var(--emerald)',
+                  background: 'rgba(16, 185, 129, 0.10)',
+                  border: '1px solid rgba(16, 185, 129, 0.25)',
+                  padding: '0.35rem 0.65rem',
+                  borderRadius: 'var(--r-sm)',
+                  marginTop: '0.5rem',
+                  width: 'fit-content'
+                }}>
+                  <UserCheck size={14} />
+                  <span>Approved by <strong>{lr.approvedBy?.username || 'Admin'}</strong> {lr.approvedAt ? `on ${formatDate(lr.approvedAt)}` : ''}</span>
+                </div>
+              )}
+
+              {/* Show rejection reason & admin */}
+              {lr.status === 'REJECTED' && (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.2rem',
+                  fontSize: '0.78rem',
+                  color: 'var(--rose)',
+                  background: 'rgba(244, 63, 94, 0.10)',
+                  border: '1px solid rgba(244, 63, 94, 0.25)',
+                  padding: '0.35rem 0.65rem',
+                  borderRadius: 'var(--r-sm)',
+                  marginTop: '0.5rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600 }}>
+                    <XCircle size={14} />
+                    <span>Rejected by {lr.approvedBy?.username || 'Admin'}</span>
+                  </div>
+                  {lr.rejectionReason && (
+                    <div style={{ marginLeft: '1.2rem' }}>
+                      Reason: {lr.rejectionReason}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

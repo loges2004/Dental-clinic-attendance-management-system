@@ -28,6 +28,20 @@ public class AttendanceSchedulerService {
     }
 
     /**
+     * 10:00 PM (22:00) check-out reminder inspection:
+     * Audits and logs open sessions active past 10 PM.
+     */
+    @Scheduled(cron = "0 0 22 * * *")
+    public void runTenPmCheckOutReminder() {
+        try {
+            log.info("Running 10:00 PM check-out reminder audit for active open sessions...");
+            attendanceService.logTenPmReminderForOpenSessions();
+        } catch (Exception e) {
+            log.error("Failed to execute 10 PM check-out reminder: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
      * Daily cleanup at 23:55 to ensure any remaining open sessions from today
      * are cleanly closed before the day rolls over.
      */

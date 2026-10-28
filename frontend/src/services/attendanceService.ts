@@ -1,5 +1,5 @@
 import api from './api';
-import type { Attendance, MonthlyArchiveSummary } from '../types';
+import type { Attendance, MonthlyArchiveSummary, SalaryAttendanceSummary } from '../types';
 
 export const attendanceService = {
   async checkIn(latitude: number, longitude: number, accuracy: number) {
@@ -43,16 +43,25 @@ export const attendanceService = {
     return res.data;
   },
 
+  async getSalaryAttendanceSummary(params: { year: number; month: number; fromDate?: string; toDate?: string }): Promise<SalaryAttendanceSummary[]> {
+    const res = await api.get<SalaryAttendanceSummary[]>('/attendance/archive/salary-summary', { params });
+    return res.data;
+  },
+
   async downloadPdf(year: number, month: number) {
+    return this.downloadSalaryPdf({ year, month });
+  },
+
+  async downloadSalaryPdf(params: { year: number; month: number; fromDate?: string; toDate?: string }) {
     const res = await api.get('/attendance/archive/export/pdf', {
-      params: { year, month },
+      params,
       responseType: 'blob',
     });
     const blob = new Blob([res.data], { type: 'application/pdf' });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `V3_Attendance_${year}_${String(month).padStart(2, '0')}.pdf`);
+    link.setAttribute('download', `V3_Salary_Attendance_Report_${params.year}_${String(params.month).padStart(2, '0')}.pdf`);
     document.body.appendChild(link);
     link.click();
     link.parentNode?.removeChild(link);
@@ -60,15 +69,19 @@ export const attendanceService = {
   },
 
   async downloadExcel(year: number, month: number) {
+    return this.downloadSalaryExcel({ year, month });
+  },
+
+  async downloadSalaryExcel(params: { year: number; month: number; fromDate?: string; toDate?: string }) {
     const res = await api.get('/attendance/archive/export/excel', {
-      params: { year, month },
+      params,
       responseType: 'blob',
     });
-    const blob = new Blob([res.data], { type: 'text/csv' });
+    const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `V3_Attendance_${year}_${String(month).padStart(2, '0')}.csv`);
+    link.setAttribute('download', `V3_Salary_Attendance_Report_${params.year}_${String(params.month).padStart(2, '0')}.csv`);
     document.body.appendChild(link);
     link.click();
     link.parentNode?.removeChild(link);

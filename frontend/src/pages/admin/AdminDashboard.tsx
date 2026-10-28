@@ -64,6 +64,11 @@ export default function AdminDashboard({ onNavigate }: { onNavigate: (p: string)
   const absent = Math.max(0, totalEmp - todayTotal);
   const pendingCount = pendingLeaves?.length || 0;
 
+  const currentHour = new Date().getHours();
+  const checkedInPast10Pm = (currentHour >= 22)
+    ? (todayAttendance?.filter(a => a.currentSessionStatus === 'CHECKED_IN') || [])
+    : [];
+
   const recentCheckins = todayAttendance?.slice(0, 10) || [];
 
   return (
@@ -115,6 +120,39 @@ export default function AdminDashboard({ onNavigate }: { onNavigate: (p: string)
             </div>
             <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--amber)' }}>
               View Details →
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Late Night Open Sessions Alert (Past 10 PM) */}
+      {checkedInPast10Pm.length > 0 && (
+        <div
+          className="glass-card"
+          style={{
+            padding: '1rem 1.25rem',
+            background: 'rgba(239, 68, 68, 0.12)',
+            border: '1.5px solid rgba(239, 68, 68, 0.45)',
+            cursor: 'pointer',
+          }}
+          onClick={() => onNavigate('attendance-today')}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div style={{ width: 36, height: 36, borderRadius: 'var(--r-sm)', background: 'rgba(239, 68, 68, 0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Clock size={18} color="var(--rose)" />
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, color: '#fca5a5', fontSize: '0.95rem' }}>
+                  🌙 {checkedInPast10Pm.length} Staff Member{checkedInPast10Pm.length !== 1 ? 's' : ''} Still Checked In Past 10:00 PM
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-2)', marginTop: 2 }}>
+                  {checkedInPast10Pm.map(a => `${a.employee.firstName} ${a.employee.lastName} (${a.branch?.name || 'Clinic'})`).join(', ')}
+                </div>
+              </div>
+            </div>
+            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--rose)' }}>
+              View Attendance →
             </span>
           </div>
         </div>

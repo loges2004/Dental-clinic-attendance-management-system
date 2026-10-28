@@ -1,5 +1,6 @@
 package com.v3dental.attendance.leave;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.v3dental.attendance.employee.Employee;
 import com.v3dental.attendance.user.User;
 import jakarta.persistence.*;
@@ -15,6 +16,7 @@ import java.time.OffsetDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class LeaveRequest {
 
     @Id
@@ -44,11 +46,13 @@ public class LeaveRequest {
     @Column(columnDefinition = "TEXT", nullable = false)
     private String reason;
 
+    @Builder.Default
     @Column(nullable = false, length = 20)
     private String status = "PENDING"; // PENDING, APPROVED, REJECTED, CANCELLED
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "approved_by")
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "passwordHash", "role"})
     private User approvedBy;
 
     @Column(name = "approved_at")

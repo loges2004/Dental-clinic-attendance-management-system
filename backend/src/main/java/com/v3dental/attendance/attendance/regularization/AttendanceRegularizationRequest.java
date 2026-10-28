@@ -1,5 +1,6 @@
 package com.v3dental.attendance.attendance.regularization;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.v3dental.attendance.employee.Employee;
 import com.v3dental.attendance.user.User;
 import jakarta.persistence.*;
@@ -15,6 +16,7 @@ import java.time.OffsetDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class AttendanceRegularizationRequest {
 
     @Id
@@ -44,8 +46,9 @@ public class AttendanceRegularizationRequest {
     @Column(name = "rejection_reason", columnDefinition = "TEXT")
     private String rejectionReason;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "reviewed_by")
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "passwordHash", "role"})
     private User reviewedBy;
 
     @Column(name = "reviewed_at")

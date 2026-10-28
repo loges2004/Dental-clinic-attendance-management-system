@@ -3,6 +3,7 @@ package com.v3dental.attendance.report;
 import com.v3dental.attendance.user.User;
 import com.v3dental.attendance.user.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -10,6 +11,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -29,14 +32,27 @@ public class ArchiveController {
         return ResponseEntity.ok(reportService.getMonthlySummary(year, month));
     }
 
+    @GetMapping("/salary-summary")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<SalaryAttendanceSummaryDto>> getSalaryAttendanceSummary(
+        @RequestParam int year,
+        @RequestParam int month,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate
+    ) {
+        return ResponseEntity.ok(reportService.getSalaryAttendanceSummary(year, month, fromDate, toDate));
+    }
+
     @GetMapping("/export/pdf")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<byte[]> exportPdf(
         @RequestParam int year,
-        @RequestParam int month
+        @RequestParam int month,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate
     ) {
-        byte[] pdfBytes = reportService.generateMonthlyPdfReport(year, month);
-        String filename = String.format("V3_Attendance_%d_%02d.pdf", year, month);
+        byte[] pdfBytes = reportService.generateMonthlyPdfReport(year, month, fromDate, toDate);
+        String filename = String.format("V3_Salary_Attendance_Report_%d_%02d.pdf", year, month);
 
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + filename)
@@ -48,14 +64,16 @@ public class ArchiveController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<byte[]> exportExcel(
         @RequestParam int year,
-        @RequestParam int month
+        @RequestParam int month,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate
     ) {
-        byte[] excelBytes = reportService.generateMonthlyExcelCsvReport(year, month);
-        String filename = String.format("V3_Attendance_%d_%02d.csv", year, month);
+        byte[] excelBytes = reportService.generateMonthlyExcelCsvReport(year, month, fromDate, toDate);
+        String filename = String.format("V3_Salary_Attendance_Report_%d_%02d.csv", year, month);
 
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + filename)
-            .contentType(MediaType.parseMediaType("text/csv"))
+            .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
             .body(excelBytes);
     }
 

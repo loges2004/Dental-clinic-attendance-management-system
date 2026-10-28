@@ -6,6 +6,7 @@ import com.v3dental.attendance.audit.AuditService;
 import com.v3dental.attendance.branch.Branch;
 import com.v3dental.attendance.employee.Employee;
 import com.v3dental.attendance.employee.EmployeeRepository;
+import com.v3dental.attendance.leave.LeaveRequestRepository;
 import com.v3dental.attendance.user.Role;
 import com.v3dental.attendance.user.User;
 import org.junit.jupiter.api.Test;
@@ -15,7 +16,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -32,6 +32,9 @@ class ReportServiceTest {
     private EmployeeRepository employeeRepository;
 
     @Mock
+    private LeaveRequestRepository leaveRequestRepository;
+
+    @Mock
     private AuditService auditService;
 
     @InjectMocks
@@ -43,10 +46,13 @@ class ReportServiceTest {
         User user = User.builder().username("nurse1").role(role).build();
         Branch branch = Branch.builder().name("Main Branch").build();
         Employee emp = Employee.builder()
+                .id(1L)
                 .employeeCode("EMP001")
                 .firstName("Priya")
                 .lastName("Dharshini")
                 .designation("Senior Nurse")
+                .isActive(true)
+                .branch(branch)
                 .user(user)
                 .build();
 
@@ -60,8 +66,11 @@ class ReportServiceTest {
                 .status("PRESENT")
                 .build();
 
+        when(employeeRepository.findAll()).thenReturn(List.of(emp));
         when(attendanceRepository.findByAttendanceDateBetweenOrderByAttendanceDateDesc(any(), any()))
                 .thenReturn(List.of(attendance));
+        when(leaveRequestRepository.findApprovedLeavesBetween(any(), any()))
+                .thenReturn(List.of());
 
         byte[] pdfBytes = reportService.generateMonthlyPdfReport(2026, 10);
 
